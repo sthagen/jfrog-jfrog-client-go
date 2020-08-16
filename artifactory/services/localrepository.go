@@ -15,7 +15,7 @@ import (
 type LocalRepositoryService struct {
 	isUpdate   bool
 	client     *rthttpclient.ArtifactoryHttpClient
-	ArtDetails auth.CommonDetails
+	ArtDetails auth.ServiceDetails
 }
 
 func NewLocalRepositoryService(client *rthttpclient.ArtifactoryHttpClient, isUpdate bool) *LocalRepositoryService {
@@ -235,8 +235,8 @@ func NewDebianLocalRepositoryParams() DebianLocalRepositoryParams {
 
 type DockerLocalRepositoryParams struct {
 	LocalRepositoryBaseParams
-	MaxUniqueTags    int   `json:"maxUniqueTags,omitempty"`
-	DockerApiVersion *bool `json:"dockerApiVersion,omitempty"`
+	MaxUniqueTags    int    `json:"maxUniqueTags,omitempty"`
+	DockerApiVersion string `json:"dockerApiVersion,omitempty"`
 }
 
 func NewDockerLocalRepositoryParams() DockerLocalRepositoryParams {

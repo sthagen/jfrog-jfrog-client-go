@@ -1,23 +1,15 @@
 package auth
 
 import (
-	"encoding/json"
-	"errors"
-	rthttpclient "github.com/jfrog/jfrog-client-go/artifactory/httpclient"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/auth"
-	"github.com/jfrog/jfrog-client-go/utils"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"net/http"
-	"strings"
-	"sync"
 )
 
-func NewArtifactoryDetails() auth.CommonDetails {
+func NewArtifactoryDetails() auth.ServiceDetails {
 	return &artifactoryDetails{}
 }
-
-var expiryHandleMutex sync.Mutex
 
 type artifactoryDetails struct {
 	auth.CommonConfigFields
@@ -36,30 +28,14 @@ func (rt *artifactoryDetails) GetVersion() (string, error) {
 }
 
 func (rt *artifactoryDetails) getArtifactoryVersion() (string, error) {
-	cd := auth.CommonDetails(rt)
-	client, err := rthttpclient.ArtifactoryClientBuilder().
-		SetCommonDetails(&cd).
+	cd := auth.ServiceDetails(rt)
+	serviceConfig, err := config.NewConfigBuilder().
+		SetServiceDetails(cd).
+		SetCertificatesPath(cd.GetClientCertPath()).
 		Build()
+	sm, err := artifactory.New(&cd, serviceConfig)
 	if err != nil {
 		return "", err
 	}
-	httpDetails := rt.CreateHttpClientDetails()
-	resp, body, _, err := client.SendGet(rt.GetUrl()+"api/system/version", true, &httpDetails)
-	if err != nil {
-		return "", err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + utils.IndentJson(body)))
-	}
-	var version artifactoryVersion
-	err = json.Unmarshal(body, &version)
-	if err != nil {
-		return "", errorutils.CheckError(err)
-	}
-	return strings.TrimSpace(version.Version), nil
-}
-
-type artifactoryVersion struct {
-	Version string `json:"version,omitempty"`
+	return sm.GetVersion()
 }

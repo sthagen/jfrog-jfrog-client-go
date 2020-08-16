@@ -34,7 +34,7 @@ func (pwa *publishZipAndModApi) isCompatible(artifactoryVersion string) bool {
 	return version.AtLeast(propertiesApi)
 }
 
-func (pwa *publishZipAndModApi) PublishPackage(params GoParams, client *rthttpclient.ArtifactoryHttpClient, ArtDetails auth.CommonDetails) error {
+func (pwa *publishZipAndModApi) PublishPackage(params GoParams, client *rthttpclient.ArtifactoryHttpClient, ArtDetails auth.ServiceDetails) error {
 	url, err := utils.BuildArtifactoryUrl(ArtDetails.GetUrl(), "api/go/"+params.GetTargetRepo(), make(map[string]string))
 	if err != nil {
 		return err
@@ -70,7 +70,7 @@ func addGoVersion(version string, urlPath *string) {
 // ext - The extension of the file: zip, mod, info. This extension will be joined with the version for the path. For example v1.2.3.info or v1.2.3.zip
 // urlPath - The url including the repository. For example: http://127.0.0.1/artifactory/api/go/go-local
 func (pwa *publishZipAndModApi) upload(localPath, moduleId, version, props, ext, urlPath string) error {
-	err := createUrlPath(moduleId, version, props, ext, &urlPath)
+	err := CreateUrlPath(moduleId, version, props, ext, &urlPath)
 	if err != nil {
 		return err
 	}

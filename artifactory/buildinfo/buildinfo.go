@@ -1,7 +1,6 @@
 package buildinfo
 
 import (
-	"github.com/jfrog/jfrog-client-go/auth"
 	"time"
 )
 
@@ -115,6 +114,7 @@ type Module struct {
 type Artifact struct {
 	Name string `json:"name,omitempty"`
 	Type string `json:"type,omitempty"`
+	Path string `json:"path,omitempty"`
 	*Checksum
 }
 
@@ -182,24 +182,4 @@ func (partials Partials) Swap(i, j int) {
 
 type General struct {
 	Timestamp time.Time `json:"Timestamp,omitempty"`
-}
-
-type Configuration struct {
-	ArtDetails auth.CommonDetails
-	BuildUrl   string
-	DryRun     bool
-	EnvInclude string
-	EnvExclude string
-}
-
-func (config *Configuration) GetArtifactoryDetails() auth.CommonDetails {
-	return config.ArtDetails
-}
-
-func (config *Configuration) SetArtifactoryDetails(artDetails auth.CommonDetails) {
-	config.ArtDetails = artDetails
-}
-
-func (config *Configuration) IsDryRun() bool {
-	return config.DryRun
 }

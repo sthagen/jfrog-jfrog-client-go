@@ -16,7 +16,7 @@ import (
 
 type BuildInfoService struct {
 	client     *rthttpclient.ArtifactoryHttpClient
-	ArtDetails auth.CommonDetails
+	ArtDetails auth.ServiceDetails
 	DryRun     bool
 }
 
@@ -24,11 +24,11 @@ func NewBuildInfoService(client *rthttpclient.ArtifactoryHttpClient) *BuildInfoS
 	return &BuildInfoService{client: client}
 }
 
-func (bis *BuildInfoService) GetArtifactoryDetails() auth.CommonDetails {
+func (bis *BuildInfoService) GetArtifactoryDetails() auth.ServiceDetails {
 	return bis.ArtDetails
 }
 
-func (bis *BuildInfoService) SetArtifactoryDetails(rt auth.CommonDetails) {
+func (bis *BuildInfoService) SetArtifactoryDetails(rt auth.ServiceDetails) {
 	bis.ArtDetails = rt
 }
 
@@ -82,6 +82,7 @@ func (bis *BuildInfoService) PublishBuildInfo(build *buildinfo.BuildInfo) error 
 		return err
 	}
 	if bis.IsDryRun() {
+		log.Info("[Dry run] Logging Build info preview...")
 		log.Output(clientutils.IndentJson(content))
 		return nil
 	}

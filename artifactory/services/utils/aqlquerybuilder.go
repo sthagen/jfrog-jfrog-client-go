@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"strconv"
 	"strings"
 
@@ -267,27 +268,21 @@ func includePropertiesInAqlForSpec(specFile *ArtifactoryCommonParams) bool {
 
 func appendMissingFields(fields []string, defaultFields []string) []string {
 	for _, field := range fields {
-		if !stringIsInSlice(field, defaultFields) {
+		if !fileutils.IsStringInSlice(field, defaultFields) {
 			defaultFields = append(defaultFields, field)
 		}
 	}
 	return defaultFields
 }
 
-func stringIsInSlice(string string, strings []string) bool {
-	for _, v := range strings {
-		if v == string {
-			return true
-		}
-	}
-	return false
-}
-
 func prepareFieldsForQuery(fields []string) []string {
-	for i, val := range fields {
-		fields[i] = `"` + val + `"`
+	// Since a slice is basically a pointer, we don't want to modify the underlying fields array because it might be used again (like in delete service)
+	// We will create new slice with the quoted values and will return it.
+	var queryFields []string
+	for _, val := range fields {
+		queryFields = append(queryFields, `"`+val+`"`)
 	}
-	return fields
+	return queryFields
 }
 
 // Creates an aql query from a spec file.

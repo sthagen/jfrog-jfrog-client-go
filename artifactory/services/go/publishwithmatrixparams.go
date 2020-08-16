@@ -31,12 +31,12 @@ func (pwmp *publishWithMatrixParams) isCompatible(artifactoryVersion string) boo
 	return true
 }
 
-func (pwmp *publishWithMatrixParams) PublishPackage(params GoParams, client *rthttpclient.ArtifactoryHttpClient, ArtDetails auth.CommonDetails) error {
+func (pwmp *publishWithMatrixParams) PublishPackage(params GoParams, client *rthttpclient.ArtifactoryHttpClient, ArtDetails auth.ServiceDetails) error {
 	url, err := utils.BuildArtifactoryUrl(ArtDetails.GetUrl(), "api/go/"+params.GetTargetRepo(), make(map[string]string))
 	clientDetails := ArtDetails.CreateHttpClientDetails()
 	addHeaders(params, &clientDetails)
 
-	err = createUrlPath(params.GetModuleId(), params.GetVersion(), params.GetProps(), ".zip", &url)
+	err = CreateUrlPath(params.GetModuleId(), params.GetVersion(), params.GetProps(), ".zip", &url)
 	if err != nil {
 		return err
 	}

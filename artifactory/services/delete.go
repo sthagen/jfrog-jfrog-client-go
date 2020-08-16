@@ -17,7 +17,7 @@ import (
 
 type DeleteService struct {
 	client     *rthttpclient.ArtifactoryHttpClient
-	ArtDetails auth.CommonDetails
+	ArtDetails auth.ServiceDetails
 	DryRun     bool
 	Threads    int
 }
@@ -26,11 +26,11 @@ func NewDeleteService(client *rthttpclient.ArtifactoryHttpClient) *DeleteService
 	return &DeleteService{client: client}
 }
 
-func (ds *DeleteService) GetArtifactoryDetails() auth.CommonDetails {
+func (ds *DeleteService) GetArtifactoryDetails() auth.ServiceDetails {
 	return ds.ArtDetails
 }
 
-func (ds *DeleteService) SetArtifactoryDetails(rt auth.CommonDetails) {
+func (ds *DeleteService) SetArtifactoryDetails(rt auth.ServiceDetails) {
 	ds.ArtDetails = rt
 }
 
@@ -121,7 +121,7 @@ func (ds *DeleteService) createFileHandlerFunc(result *utils.Result) fileDeleteH
 
 func (ds *DeleteService) DeleteFiles(deleteItems []utils.ResultItem) (int, error) {
 	producerConsumer := parallel.NewBounedRunner(ds.GetThreads(), false)
-	errorsQueue := utils.NewErrorsQueue(1)
+	errorsQueue := clientutils.NewErrorsQueue(1)
 	result := *utils.NewResult(ds.Threads)
 	go func() {
 		defer producerConsumer.Done()
@@ -133,7 +133,7 @@ func (ds *DeleteService) DeleteFiles(deleteItems []utils.ResultItem) (int, error
 	return ds.performTasks(producerConsumer, errorsQueue, result)
 }
 
-func (ds *DeleteService) performTasks(consumer parallel.Runner, errorsQueue *utils.ErrorsQueue, result utils.Result) (totalDeleted int, err error) {
+func (ds *DeleteService) performTasks(consumer parallel.Runner, errorsQueue *clientutils.ErrorsQueue, result utils.Result) (totalDeleted int, err error) {
 	consumer.Run()
 	err = errorsQueue.GetError()
 
@@ -143,15 +143,15 @@ func (ds *DeleteService) performTasks(consumer parallel.Runner, errorsQueue *uti
 }
 
 type DeleteConfiguration struct {
-	ArtDetails auth.CommonDetails
+	ArtDetails auth.ServiceDetails
 	DryRun     bool
 }
 
-func (conf *DeleteConfiguration) GetArtifactoryDetails() auth.CommonDetails {
+func (conf *DeleteConfiguration) GetArtifactoryDetails() auth.ServiceDetails {
 	return conf.ArtDetails
 }
 
-func (conf *DeleteConfiguration) SetArtifactoryDetails(art auth.CommonDetails) {
+func (conf *DeleteConfiguration) SetArtifactoryDetails(art auth.ServiceDetails) {
 	conf.ArtDetails = art
 }
 
