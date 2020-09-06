@@ -18,8 +18,11 @@ import (
 const (
 	Development = "development"
 	Agent       = "jfrog-client-go"
-	Version     = "0.12.0"
+	Version     = "0.13.2"
 )
+
+// In order to limit the number of items loaded from a reader into the memory, we use a buffers with this size limit.
+var MaxBufferSize = 50000
 
 var userAgent = getDefaultUserAgent()
 
@@ -126,8 +129,16 @@ func AddTrailingSlashIfNeeded(url string) string {
 }
 
 func IndentJson(jsonStr []byte) string {
+	return doIndentJson(jsonStr, "", "  ")
+}
+
+func IndentJsonArray(jsonStr []byte) string {
+	return doIndentJson(jsonStr, "  ", "  ")
+}
+
+func doIndentJson(jsonStr []byte, prefix, indent string) string {
 	var content bytes.Buffer
-	err := json.Indent(&content, jsonStr, "", "  ")
+	err := json.Indent(&content, jsonStr, prefix, indent)
 	if err == nil {
 		return content.String()
 	}
