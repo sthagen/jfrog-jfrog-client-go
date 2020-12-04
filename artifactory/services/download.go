@@ -199,12 +199,6 @@ func addCreateDirsTasks(directoriesDataKeys []string, alreadyCreatedDirs map[str
 func (ds *DownloadService) performTasks(consumer parallel.Runner, errorsQueue *clientutils.ErrorsQueue) error {
 	// Blocked until finish consuming
 	consumer.Run()
-	if ds.ResultWriter != nil {
-		err := ds.ResultWriter.Close()
-		if err != nil {
-			return err
-		}
-	}
 	return errorsQueue.GetError()
 }
 
@@ -283,21 +277,6 @@ func (ds *DownloadService) isFileAcceptRange(downloadFileDetails *httpclient.Dow
 		return false, err
 	}
 	return isAcceptRange, err
-}
-
-func shouldDownloadFile(localFilePath, md5, sha1 string) (bool, error) {
-	exists, err := fileutils.IsFileExists(localFilePath, false)
-	if err != nil {
-		return false, err
-	}
-	if !exists {
-		return true, nil
-	}
-	localFileDetails, err := fileutils.GetFileDetails(localFilePath)
-	if err != nil {
-		return false, err
-	}
-	return localFileDetails.Checksum.Md5 != md5 || localFileDetails.Checksum.Sha1 != sha1, nil
 }
 
 func removeIfSymlink(localSymlinkPath string) error {
@@ -416,11 +395,11 @@ func (ds *DownloadService) createFileHandlerFunc(downloadParams DownloadParams, 
 }
 
 func (ds *DownloadService) downloadFileIfNeeded(downloadPath, localPath, localFileName, logMsgPrefix string, downloadData DownloadData, downloadParams DownloadParams) error {
-	shouldDownload, e := shouldDownloadFile(filepath.Join(localPath, localFileName), downloadData.Dependency.Actual_Md5, downloadData.Dependency.Actual_Sha1)
+	isEqual, e := fileutils.IsEqualToLocalFile(filepath.Join(localPath, localFileName), downloadData.Dependency.Actual_Md5, downloadData.Dependency.Actual_Sha1)
 	if e != nil {
 		return e
 	}
-	if !shouldDownload {
+	if isEqual {
 		log.Debug(logMsgPrefix, "File already exists locally.")
 		if downloadParams.IsExplode() {
 			e = explodeLocalFile(localPath, localFileName)

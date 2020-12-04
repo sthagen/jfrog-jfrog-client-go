@@ -8,10 +8,9 @@ import (
 	"os"
 	"sync"
 
-	"github.com/jfrog/jfrog-client-go/utils/log"
-
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 // Open and read JSON file, find the array key inside it and load its value into the memory in small chunks.
@@ -68,7 +67,7 @@ func (cr *ContentReader) NextRecord(recordOutput interface{}) error {
 	})
 	record, ok := <-cr.dataChannel
 	if !ok {
-		return errorutils.CheckError(io.EOF)
+		return io.EOF
 	}
 	// Transform the data into a Go type
 	data, err := json.Marshal(record)
