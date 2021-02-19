@@ -111,7 +111,8 @@ func GetLocalPathAndFile(originalFileName, relativePath, targetPath string, flat
 	}
 
 	fileName = originalFileName
-	if targetFileName != "" {
+	// '.' as a target path is equivalent to an empty target path.
+	if targetFileName != "" && targetFileName != "." {
 		fileName = targetFileName
 	}
 	return
@@ -531,4 +532,86 @@ func IsEqualToLocalFile(localFilePath, md5, sha1 string) (bool, error) {
 		return false, err
 	}
 	return localFileDetails.Checksum.Md5 == md5 && localFileDetails.Checksum.Sha1 == sha1, nil
+}
+
+// Move directory content from one path to another.
+func MoveDir(fromPath, toPath string) error {
+	err := CreateDirIfNotExist(toPath)
+	if err != nil {
+		return err
+	}
+
+	files, err := ListFiles(fromPath, true)
+	if err != nil {
+		return err
+	}
+
+	for _, v := range files {
+		dir, err := IsDirExists(v, true)
+		if err != nil {
+			return err
+		}
+
+		if dir {
+			toPath := toPath + GetFileSeparator() + filepath.Base(v)
+			err := MoveDir(v, toPath)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		err = MoveFile(v, filepath.Join(toPath, filepath.Base(v)))
+		if err != nil {
+			return err
+		}
+	}
+	return err
+}
+
+// GoLang: os.Rename() give error "invalid cross-device link" for Docker container with Volumes.
+// MoveFile(source, destination) will work moving file between folders
+// Therefore, we are using our own implementation (MoveFile) in order to rename files.
+func MoveFile(sourcePath, destPath string) (err error) {
+	inputFileOpen := true
+	var inputFile *os.File
+	inputFile, err = os.Open(sourcePath)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	defer func() {
+		if inputFileOpen {
+			e := inputFile.Close()
+			if err == nil {
+				err = e
+				errorutils.CheckError(err)
+			}
+		}
+	}()
+
+	var outputFile *os.File
+	outputFile, err = os.Create(destPath)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	defer func() {
+		e := outputFile.Close()
+		if err == nil {
+			err = e
+			errorutils.CheckError(err)
+		}
+	}()
+
+	_, err = io.Copy(outputFile, inputFile)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+
+	// The copy was successful, so now delete the original file
+	err = inputFile.Close()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	inputFileOpen = false
+	err = os.Remove(sourcePath)
+	return errorutils.CheckError(err)
 }

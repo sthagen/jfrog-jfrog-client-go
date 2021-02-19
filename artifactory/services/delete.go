@@ -6,9 +6,9 @@ import (
 	"strconv"
 
 	"github.com/jfrog/gofrog/parallel"
-	rthttpclient "github.com/jfrog/jfrog-client-go/artifactory/httpclient"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/auth"
+	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
@@ -16,13 +16,13 @@ import (
 )
 
 type DeleteService struct {
-	client     *rthttpclient.ArtifactoryHttpClient
+	client     *jfroghttpclient.JfrogHttpClient
 	ArtDetails auth.ServiceDetails
 	DryRun     bool
 	Threads    int
 }
 
-func NewDeleteService(client *rthttpclient.ArtifactoryHttpClient) *DeleteService {
+func NewDeleteService(client *jfroghttpclient.JfrogHttpClient) *DeleteService {
 	return &DeleteService{client: client}
 }
 
@@ -46,7 +46,7 @@ func (ds *DeleteService) SetThreads(threads int) {
 	ds.Threads = threads
 }
 
-func (ds *DeleteService) GetJfrogHttpClient() (*rthttpclient.ArtifactoryHttpClient, error) {
+func (ds *DeleteService) GetJfrogHttpClient() (*jfroghttpclient.JfrogHttpClient, error) {
 	return ds.client, nil
 }
 
@@ -76,7 +76,7 @@ func (ds *DeleteService) GetPathsToDelete(deleteParams DeleteParams) (resultItem
 			toBeDeletedDirs = tempResultItems
 		}
 		defer toBeDeletedDirs.Close()
-		resultItems, err = utils.ReduceTopChainDirResult(toBeDeletedDirs)
+		resultItems, err = utils.ReduceTopChainDirResult(utils.ResultItem{}, toBeDeletedDirs)
 		if err != nil {
 			return
 		}
@@ -199,13 +199,16 @@ func removeNotToBeDeletedDirs(specFile *utils.ArtifactoryCommonParams, ds *Delet
 	if err != nil {
 		return nil, err
 	}
-	bufferFiles, err := utils.FilterCandidateToBeDeleted(deleteCandidates, resultWriter)
+	bufferFiles, err := utils.FilterCandidateToBeDeleted(deleteCandidates, resultWriter, "folder")
 	if len(bufferFiles) > 0 {
 		defer func() {
 			for _, file := range bufferFiles {
 				file.Close()
 			}
 		}()
+		if err != nil {
+			return nil, err
+		}
 		artifactNotToBeDeleteReader, err := getSortedArtifactsToNotDelete(specFile, ds)
 		if err != nil {
 			return nil, err
@@ -215,6 +218,9 @@ func removeNotToBeDeletedDirs(specFile *utils.ArtifactoryCommonParams, ds *Delet
 			return nil, err
 		}
 	}
+	if err != nil {
+		return nil, err
+	}
 	if err = resultWriter.Close(); err != nil {
 		return nil, err
 	}
@@ -223,8 +229,22 @@ func removeNotToBeDeletedDirs(specFile *utils.ArtifactoryCommonParams, ds *Delet
 
 func getSortedArtifactsToNotDelete(specFile *utils.ArtifactoryCommonParams, ds *DeleteService) (*content.ContentReader, error) {
 	specFile.Props = specFile.ExcludeProps
-	specFile.SortOrder = "asc"
-	specFile.SortBy = []string{"repo", "path", "name"}
 	specFile.ExcludeProps = ""
-	return utils.SearchBySpecWithPattern(specFile, ds, utils.NONE)
+	tempResults, err := utils.SearchBySpecWithPattern(specFile, ds, utils.NONE)
+	if err != nil {
+		return nil, err
+	}
+	resultWriter, err := content.NewContentWriter(content.DefaultKey, true, false)
+	if err != nil {
+		return nil, err
+	}
+	// Note that we have to sort the result by ourselves, and not relay on Artifactory's OrderBy, because of 2 main reasons:
+	// 1. Go sorts strings differently from Artifactory's database, when the strings include special chars, such as dashes.
+	// 2. Artifactory sorts by database columns, so directories will be sorted differently than files,
+	//    because the path and name cols have different values.
+	sortedResults, err := utils.FilterCandidateToBeDeleted(tempResults, resultWriter, "file")
+	if err != nil {
+		return nil, err
+	}
+	return content.MergeSortedReaders(utils.ResultItem{}, sortedResults, true)
 }

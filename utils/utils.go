@@ -18,7 +18,7 @@ import (
 const (
 	Development = "development"
 	Agent       = "jfrog-client-go"
-	Version     = "0.15.0"
+	Version     = "0.19.0"
 )
 
 // In order to limit the number of items loaded from a reader into the memory, we use a buffers with this size limit.
@@ -169,7 +169,7 @@ func PrepareLocalPathForUpload(localPath string, useRegExp bool) string {
 		localPath = localPath[3:]
 	}
 	if !useRegExp {
-		localPath = pathToRegExp(cleanPath(localPath))
+		localPath = PathToRegExp(cleanPath(localPath))
 	}
 	return localPath
 }
@@ -186,7 +186,7 @@ func cleanPath(path string) string {
 	return path
 }
 
-func pathToRegExp(localPath string) string {
+func PathToRegExp(localPath string) string {
 	var SPECIAL_CHARS = []string{".", "^", "$", "+"}
 	for _, char := range SPECIAL_CHARS {
 		localPath = strings.Replace(localPath, char, "\\"+char, -1)
@@ -216,7 +216,7 @@ func BuildTargetPath(pattern, path, target string, ignoreRepo bool) (string, err
 		path = removeRepoFromPath(path)
 	}
 	pattern = addEscapingParentheses(pattern, target)
-	pattern = pathToRegExp(pattern)
+	pattern = PathToRegExp(pattern)
 	if slashIndex < 0 {
 		// If '/' doesn't exist, add an optional trailing-slash to support cases in which the provided pattern
 		// is only the repository name.
@@ -351,6 +351,13 @@ func SplitWithEscape(str string, separator rune) []string {
 	}
 	parts = append(parts, current.String())
 	return parts
+}
+
+func AddProps(oldProps, additionalProps string) string {
+	if len(oldProps) > 0 && !strings.HasSuffix(oldProps, ";") && len(additionalProps) > 0 {
+		oldProps += ";"
+	}
+	return oldProps + additionalProps
 }
 
 func IsWindows() bool {

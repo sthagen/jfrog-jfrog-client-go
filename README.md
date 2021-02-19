@@ -61,6 +61,12 @@
       - [Removing a Permission Target](#removing-a-permission-target)
       - [Fetching Artifactory's Version](#fetching-artifactorys-version)
       - [Fetching Artifactory's Service ID](#fetching-artifactorys-service-id)
+      - [Fetching Users Details](#fetching-users-details)
+      - [Creating and Updating a User](#creating-and-updating-a-user)
+      - [Deleting a User](#deleting-a-user)
+      - [Fetching Group Details](#fetching-group-details)
+      - [Creating and Updating a Group](#creating-and-updating-a-group)
+      - [Deleting a Group](#deleting-a-group)
   - [Distribution APIs](#distribution-apis)
     - [Creating Distribution Service Manager](#creating-distribution-service-manager)
       - [Creating Distribution Details](#creating-distribution-details)
@@ -183,6 +189,8 @@ serviceConfig, err := config.NewConfigBuilder().
     SetCertificatesPath(certPath).
     SetThreads(threads).
     SetDryRun(false).
+    // Add [Context](https://golang.org/pkg/context/)
+    SetContext(ctx).
     Build()
 ```
 
@@ -200,7 +208,7 @@ params := services.NewUploadParams()
 params.Pattern = "repo/*/*.zip"
 params.Target = "repo/path/"
 // Attach properties to the uploaded files.
-params.Props = "key1=val1;key2=val2"
+params.TargetProps = "key1=val1;key2=val2"
 params.AddVcsProps = false
 params.BuildProps = "build.name=buildName;build.number=17;build.timestamp=1600856623553"
 params.Recursive = true
@@ -224,7 +232,7 @@ params := services.NewUploadParams()
 params.Pattern = "repo/*/*.zip"
 params.Target = "repo/path/"
 // Attach properties to the uploaded files.
-params.Props = "key1=val1;key2=val2"
+params.TargetProps = "key1=val1;key2=val2"
 params.AddVcsProps = false
 params.BuildProps = "build.name=buildName;build.number=17;build.timestamp=1600856623553"
 params.Recursive = true
@@ -753,6 +761,74 @@ version, err := servicesManager.GetVersion()
 serviceId, err := servicesManager.GetServiceId()
 ```
 
+#### Fetching Users Details
+```go
+params := services.NewUserParams()
+params.UserDetails.Name = "myUserName"
+
+user, err := serviceManager.GetUser(params)
+```
+
+#### Creating and Updating a User
+```go
+params := services.NewUserParams()
+params.UserDetails.Name = "myUserName"
+params.UserDetails.Email = "myUser@jfrog.com"
+params.UserDetails.Password = "Password1"
+params.UserDetails.Admin = false
+params.UserDetails.Realm= "internal"
+params.UserDetails.ProfileUpdatable = true
+params.UserDetails.DisableUIAccess = false
+params.UserDetails.InternalPasswordDisabled = false
+params.UserDetails.groups = [2]string{"GroupA", "GroupB"}
+// Set to true in order to replace exist user with the same name
+params.ReplaceIfExists = false
+err := serviceManager.CreateUser(params)
+
+params.UserDetails.groups = [3]string{"GroupA", "GroupB", "GroupC"}
+err := serviceManager.UpdateUser(params)
+```
+
+#### Deleting a User
+```go
+err := serviceManager.DeleteUser("myUserName")
+```
+
+#### Fetching Group Details
+```go
+params := services.NewGroupParams()
+params.GroupDetails.Name = "myGroupName"
+// Set this param to true to receive the user names associated with this group
+params.IncludeUsers = true
+
+group, err := serviceManager.GetGroup(params)
+```
+
+#### Creating and Updating a Group
+```go
+params := services.NewGroupParams()
+params.GroupDetails.Name = "myGroupName"
+params.GroupDetails.Description = "Description"
+params.GroupDetails.AutoJoin = false
+params.GroupDetails.AdminPrivileges = true
+params.GroupDetails.Realm = "internal"
+params.GroupDetails.UsersNames = [2]string{"UserA", "UserB"}
+// Set to true in order to replace exist group with the same name
+params.ReplaceIfExists = false
+err := serviceManager.CreateGroup(params)
+
+params.GroupDetails.Description = "Newer Description"
+// Will add UserC to the group (in addition to existing UserA and UserB)
+params.GroupDetails.UsersNames = [1]string{"UserC"}
+
+err := serviceManager.UpdateGroup(params)
+```
+
+#### Deleting a Group
+```go
+err := serviceManager.DeleteGroup("myGroupName")
+```
+
 ## Distribution APIs
 ### Creating Distribution Service Manager
 #### Creating Distribution Details
@@ -776,6 +852,8 @@ serviceConfig, err := config.NewConfigBuilder().
     SetCertificatesPath(certPath).
     SetThreads(threads).
     SetDryRun(false).
+    // Add [Context](https://golang.org/pkg/context/)
+    SetContext(ctx).
     Build()
 ```
 
@@ -799,6 +877,19 @@ params.SpecFiles = []*utils.ArtifactoryCommonParams{{Pattern: "repo/*/*.zip"}}
 params.Description = "Description"
 params.ReleaseNotes = "Release notes"
 params.ReleaseNotesSyntax = "plain_text"
+params.TargetProps = "key1=val1;key2=val2,val3"
+
+// Be default, artifacts that are distributed as part of a release bundle, have the same path in their destination server
+// (the edge node) as the path they had on the distributing Artifactory server.
+// You have however the option for modifying the target path on edge node. You do this by defining the Target property as shown below.
+// The Pattern property is a wildcard based pattern. Any wildcards enclosed in parenthesis in the pattern (source)
+// path can be matched with a corresponding placeholder in the target path, to determine the path and name
+// of the artifact, once distributed to the edge node.
+// In the following example, the path in the edge node is similar to the path in the source Artifactory server, except for the additional "dir" level at the root of the repository.
+// Pattern: my-repo/(*)/a.zip
+// Target: my-repo/dir/{1}/a.zip
+pathMappingSpec := &utils.ArtifactoryCommonParams{Pattern: "source-repo/(a)/(*.zip)", Target: "target-repo/{1}-{2}"}
+params.SpecFiles = append(params.SpecFiles, pathMappingSpec)
 
 err := distManager.CreateReleaseBundle(params)
 ```
@@ -810,6 +901,12 @@ params.SpecFiles = []*utils.ArtifactoryCommonParams{{Pattern: "repo/*/*.zip"}}
 params.Description = "New Description"
 params.ReleaseNotes = "New Release notes"
 params.ReleaseNotesSyntax = "plain_text"
+params.TargetProps = "key1=val1;key2=val2,val3"
+
+// The Target property defines the target path in the edge node, and can include replaceable in the form of {1}, {2}, ...
+// Read more about it in the above "Creating a Release Bundle" section.
+pathMappingSpec := &utils.ArtifactoryCommonParams{Pattern: "source-repo/(a)/(*.zip)", Target: "target-repo/{1}-{2}"}
+params.SpecFiles = append(params.SpecFiles, pathMappingSpec)
 
 err := distManager.CreateReleaseBundle(params)
 ```

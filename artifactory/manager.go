@@ -4,36 +4,37 @@ import (
 	"io"
 
 	"github.com/jfrog/jfrog-client-go/artifactory/buildinfo"
-	rthttpclient "github.com/jfrog/jfrog-client-go/artifactory/httpclient"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	_go "github.com/jfrog/jfrog-client-go/artifactory/services/go"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/config"
+	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
 	ioutils "github.com/jfrog/jfrog-client-go/utils/io"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 )
 
 type ArtifactoryServicesManagerImp struct {
-	client   *rthttpclient.ArtifactoryHttpClient
+	client   *jfroghttpclient.JfrogHttpClient
 	config   config.Config
-	progress ioutils.Progress
+	progress ioutils.ProgressMgr
 }
 
 func New(artDetails *auth.ServiceDetails, config config.Config) (ArtifactoryServicesManager, error) {
 	return NewWithProgress(artDetails, config, nil)
 }
 
-func NewWithProgress(artDetails *auth.ServiceDetails, config config.Config, progress ioutils.Progress) (ArtifactoryServicesManager, error) {
+func NewWithProgress(artDetails *auth.ServiceDetails, config config.Config, progress ioutils.ProgressMgr) (ArtifactoryServicesManager, error) {
 	err := (*artDetails).InitSsh()
 	if err != nil {
 		return nil, err
 	}
 	manager := &ArtifactoryServicesManagerImp{config: config, progress: progress}
-	manager.client, err = rthttpclient.ArtifactoryClientBuilder().
+	manager.client, err = jfroghttpclient.JfrogClientBuilder().
 		SetCertificatesPath(config.GetCertificatesPath()).
 		SetInsecureTls(config.IsInsecureTls()).
 		SetServiceDetails(artDetails).
+		SetContext(config.GetContext()).
 		Build()
 	if err != nil {
 		return nil, err
@@ -261,18 +262,20 @@ func (sm *ArtifactoryServicesManagerImp) UploadFilesWithResultReader(params ...s
 	return
 }
 
-func (sm *ArtifactoryServicesManagerImp) Copy(params services.MoveCopyParams) (successCount, failedCount int, err error) {
+func (sm *ArtifactoryServicesManagerImp) Copy(params ...services.MoveCopyParams) (successCount, failedCount int, err error) {
 	copyService := services.NewMoveCopyService(sm.client, services.COPY)
 	copyService.DryRun = sm.config.IsDryRun()
 	copyService.ArtDetails = sm.config.GetServiceDetails()
-	return copyService.MoveCopyServiceMoveFilesWrapper(params)
+	copyService.Threads = sm.config.GetThreads()
+	return copyService.MoveCopyServiceMoveFilesWrapper(params...)
 }
 
-func (sm *ArtifactoryServicesManagerImp) Move(params services.MoveCopyParams) (successCount, failedCount int, err error) {
+func (sm *ArtifactoryServicesManagerImp) Move(params ...services.MoveCopyParams) (successCount, failedCount int, err error) {
 	moveService := services.NewMoveCopyService(sm.client, services.MOVE)
 	moveService.DryRun = sm.config.IsDryRun()
 	moveService.ArtDetails = sm.config.GetServiceDetails()
-	return moveService.MoveCopyServiceMoveFilesWrapper(params)
+	moveService.Threads = sm.config.GetThreads()
+	return moveService.MoveCopyServiceMoveFilesWrapper(params...)
 }
 
 func (sm *ArtifactoryServicesManagerImp) PublishGoProject(params _go.GoParams) error {
@@ -357,12 +360,60 @@ func (sm *ArtifactoryServicesManagerImp) GetServiceId() (string, error) {
 	return systemService.GetServiceId()
 }
 
+func (sm *ArtifactoryServicesManagerImp) GetGroup(params services.GroupParams) (*services.Group, error) {
+	groupService := services.NewGroupService(sm.client)
+	groupService.ArtDetails = sm.config.GetServiceDetails()
+	return groupService.GetGroup(params)
+}
+
+func (sm *ArtifactoryServicesManagerImp) CreateGroup(params services.GroupParams) error {
+	groupService := services.NewGroupService(sm.client)
+	groupService.ArtDetails = sm.config.GetServiceDetails()
+	return groupService.CreateGroup(params)
+}
+
+func (sm *ArtifactoryServicesManagerImp) UpdateGroup(params services.GroupParams) error {
+	groupService := services.NewGroupService(sm.client)
+	groupService.ArtDetails = sm.config.GetServiceDetails()
+	return groupService.UpdateGroup(params)
+}
+
+func (sm *ArtifactoryServicesManagerImp) DeleteGroup(name string) error {
+	groupService := services.NewGroupService(sm.client)
+	groupService.ArtDetails = sm.config.GetServiceDetails()
+	return groupService.DeleteGroup(name)
+}
+
+func (sm *ArtifactoryServicesManagerImp) GetUser(params services.UserParams) (*services.User, error) {
+	userService := services.NewUserService(sm.client)
+	userService.ArtDetails = sm.config.GetServiceDetails()
+	return userService.GetUser(params)
+}
+
+func (sm *ArtifactoryServicesManagerImp) CreateUser(params services.UserParams) error {
+	userService := services.NewUserService(sm.client)
+	userService.ArtDetails = sm.config.GetServiceDetails()
+	return userService.CreateUser(params)
+}
+
+func (sm *ArtifactoryServicesManagerImp) UpdateUser(params services.UserParams) error {
+	userService := services.NewUserService(sm.client)
+	userService.ArtDetails = sm.config.GetServiceDetails()
+	return userService.UpdateUser(params)
+}
+
+func (sm *ArtifactoryServicesManagerImp) DeleteUser(name string) error {
+	userService := services.NewUserService(sm.client)
+	userService.ArtDetails = sm.config.GetServiceDetails()
+	return userService.DeleteUser(name)
+}
+
 func (sm *ArtifactoryServicesManagerImp) PromoteDocker(params services.DockerPromoteParams) error {
 	systemService := services.NewDockerPromoteService(sm.client)
 	systemService.ArtDetails = sm.config.GetServiceDetails()
 	return systemService.PromoteDocker(params)
 }
 
-func (sm *ArtifactoryServicesManagerImp) Client() *rthttpclient.ArtifactoryHttpClient {
+func (sm *ArtifactoryServicesManagerImp) Client() *jfroghttpclient.JfrogHttpClient {
 	return sm.client
 }

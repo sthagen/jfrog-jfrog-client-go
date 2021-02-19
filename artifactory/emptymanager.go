@@ -4,11 +4,11 @@ import (
 	"io"
 
 	"github.com/jfrog/jfrog-client-go/artifactory/buildinfo"
-	rthttpclient "github.com/jfrog/jfrog-client-go/artifactory/httpclient"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	_go "github.com/jfrog/jfrog-client-go/artifactory/services/go"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/config"
+	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 )
 
@@ -42,8 +42,8 @@ type ArtifactoryServicesManager interface {
 	DeleteProps(params services.PropsParams) (int, error)
 	UploadFilesWithResultReader(params ...services.UploadParams) (resultReader *content.ContentReader, totalUploaded, totalFailed int, err error)
 	UploadFiles(params ...services.UploadParams) (totalUploaded, totalFailed int, err error)
-	Copy(params services.MoveCopyParams) (successCount, failedCount int, err error)
-	Move(params services.MoveCopyParams) (successCount, failedCount int, err error)
+	Copy(params ...services.MoveCopyParams) (successCount, failedCount int, err error)
+	Move(params ...services.MoveCopyParams) (successCount, failedCount int, err error)
 	PublishGoProject(params _go.GoParams) error
 	Ping() ([]byte, error)
 	GetConfig() config.Config
@@ -59,7 +59,15 @@ type ArtifactoryServicesManager interface {
 	GetVersion() (string, error)
 	GetServiceId() (string, error)
 	PromoteDocker(params services.DockerPromoteParams) error
-	Client() *rthttpclient.ArtifactoryHttpClient
+	Client() *jfroghttpclient.JfrogHttpClient
+	GetGroup(params services.GroupParams) (*services.Group, error)
+	CreateGroup(params services.GroupParams) error
+	UpdateGroup(params services.GroupParams) error
+	DeleteGroup(name string) error
+	GetUser(params services.UserParams) (*services.User, error)
+	CreateUser(params services.UserParams) error
+	UpdateUser(params services.UserParams) error
+	DeleteUser(name string) error
 }
 
 // By using this struct, you have the option of overriding only some of the ArtifactoryServicesManager
@@ -184,11 +192,11 @@ func (esm *EmptyArtifactoryServicesManager) UploadFilesWithResultReader(params .
 	panic("Failed: Method is not implemented")
 }
 
-func (esm *EmptyArtifactoryServicesManager) Copy(params services.MoveCopyParams) (successCount, failedCount int, err error) {
+func (esm *EmptyArtifactoryServicesManager) Copy(params ...services.MoveCopyParams) (successCount, failedCount int, err error) {
 	panic("Failed: Method is not implemented")
 }
 
-func (esm *EmptyArtifactoryServicesManager) Move(params services.MoveCopyParams) (successCount, failedCount int, err error) {
+func (esm *EmptyArtifactoryServicesManager) Move(params ...services.MoveCopyParams) (successCount, failedCount int, err error) {
 	panic("Failed: Method is not implemented")
 }
 
@@ -252,10 +260,46 @@ func (esm *EmptyArtifactoryServicesManager) PromoteDocker(params services.Docker
 	panic("Failed: Method is not implemented")
 }
 
-func (esm *EmptyArtifactoryServicesManager) Client() *rthttpclient.ArtifactoryHttpClient {
+func (esm *EmptyArtifactoryServicesManager) Client() *jfroghttpclient.JfrogHttpClient {
 	panic("Failed: Method is not implemented")
 }
 
 func (esm *EmptyArtifactoryServicesManager) GetAllRepositories() (*[]services.RepositoryDetails, error) {
 	panic("Failed: Method is not implemented")
 }
+func (esm *EmptyArtifactoryServicesManager) GetUser(params services.UserParams) (*services.User, error) {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) CreateUser(params services.UserParams) error {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) UpdateUser(params services.UserParams) error {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) DeleteUser(name string) error {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) GetGroup(params services.GroupParams) (*services.Group, error) {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) CreateGroup(params services.GroupParams) error {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) UpdateGroup(params services.GroupParams) error {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) DeleteGroup(name string) error {
+	panic("Failed: Method is not implemented")
+}
+
+// Compile time check of interface implementation.
+// Since EmptyArtifactoryServicesManager can be used by tests external to this project, we want this project's tests to fail,
+// if EmptyArtifactoryServicesManager stops implementing the ArtifactoryServicesManager interface.
+var _ ArtifactoryServicesManager = (*EmptyArtifactoryServicesManager)(nil)
