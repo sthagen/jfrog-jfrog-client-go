@@ -56,7 +56,7 @@ func (us *UserService) GetUser(params UserParams) (u *User, err error) {
 	if err != nil {
 		return nil, err
 	}
-	// The case the requseted user is not found
+	// The case the requested user is not found
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
@@ -70,6 +70,23 @@ func (us *UserService) GetUser(params UserParams) (u *User, err error) {
 	return &user, nil
 }
 
+func (us *UserService) GetAllUsers() ([]*User, error) {
+	httpDetails := us.ArtDetails.CreateHttpClientDetails()
+	url := fmt.Sprintf("%sapi/security/users", us.ArtDetails.GetUrl())
+	resp, body, _, err := us.client.SendGet(url, true, &httpDetails)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	}
+	var users []*User
+	if err := json.Unmarshal(body, &users); err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	return users, nil
+}
+
 func (us *UserService) CreateUser(params UserParams) error {
 	// Checks if the user already exist and act according to ReplaceIfExists parameter.
 	if !params.ReplaceIfExists {
@@ -78,7 +95,7 @@ func (us *UserService) CreateUser(params UserParams) error {
 			return err
 		}
 		if user != nil {
-			return fmt.Errorf("User %s already exists.", user.Name)
+			return errorutils.CheckError(fmt.Errorf("user '%s' already exists", user.Name))
 		}
 	}
 	url, content, httpDetails, err := us.createOrUpdateUserRequest(params.UserDetails)

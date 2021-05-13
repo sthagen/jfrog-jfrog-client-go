@@ -50,10 +50,7 @@ func CreateBundleBody(releaseBundleParams ReleaseBundleParams, dryRun bool) (*Re
 		pathMappings := createPathMappings(specFile)
 
 		// Create added properties
-		addedProps, err := createAddedProps(specFile)
-		if err != nil {
-			return nil, err
-		}
+		addedProps := createAddedProps(specFile)
 
 		// Append bundle query
 		bundleQueries = append(bundleQueries, BundleQuery{Aql: aql, PathMappings: pathMappings, AddedProps: addedProps})
@@ -101,7 +98,7 @@ func createPathMappings(specFile *rtUtils.ArtifactoryCommonParams) []PathMapping
 	// Convert the file spec pattern and target to match the path mapping input and output specifications, respectfully.
 	return []PathMapping{{
 		// The file spec pattern is wildcard based. Convert it to Regex:
-		Input: utils.PathToRegExp(specFile.Pattern),
+		Input: utils.WildcardPathToRegExp(specFile.Pattern),
 		// The file spec target contain placeholders-style matching groups, like {1}.
 		// Convert it to REST API's matching groups style, like $1.
 		Output: fileSpecCaptureGroup.ReplaceAllStringFunc(specFile.Target, func(s string) string {
@@ -112,17 +109,16 @@ func createPathMappings(specFile *rtUtils.ArtifactoryCommonParams) []PathMapping
 }
 
 // Create the AddedProps array from the input TargetProps string
-func createAddedProps(specFile *rtUtils.ArtifactoryCommonParams) ([]AddedProps, error) {
-	props, err := rtUtils.ParseProperties(specFile.TargetProps, rtUtils.SplitCommas)
-	if err != nil {
-		return nil, err
-	}
+func createAddedProps(specFile *rtUtils.ArtifactoryCommonParams) []AddedProps {
+	props := specFile.TargetProps
 
 	var addedProps []AddedProps
-	for key, values := range props.ToMap() {
-		addedProps = append(addedProps, AddedProps{key, values})
+	if props != nil {
+		for key, values := range props.ToMap() {
+			addedProps = append(addedProps, AddedProps{key, values})
+		}
 	}
-	return addedProps, nil
+	return addedProps
 }
 
 func AddGpgPassphraseHeader(gpgPassphrase string, headers *map[string]string) {

@@ -29,7 +29,7 @@ func (pts *PermissionTargetService) GetJfrogHttpClient() *jfroghttpclient.JfrogH
 func (pts *PermissionTargetService) Delete(permissionTargetName string) error {
 	httpClientsDetails := pts.ArtDetails.CreateHttpClientDetails()
 	log.Info("Deleting permission target...")
-	resp, body, err := pts.client.SendDelete(pts.ArtDetails.GetUrl()+"api/security/permissions/"+permissionTargetName, nil, &httpClientsDetails)
+	resp, body, err := pts.client.SendDelete(pts.ArtDetails.GetUrl()+"api/v2/security/permissions/"+permissionTargetName, nil, &httpClientsDetails)
 	if err != nil {
 		return err
 	}
@@ -40,6 +40,25 @@ func (pts *PermissionTargetService) Delete(permissionTargetName string) error {
 	log.Debug("Artifactory response:", resp.Status)
 	log.Info("Done deleting permission target.")
 	return nil
+}
+
+func (pts *PermissionTargetService) Get(permissionTargetName string) (*PermissionTargetParams, error) {
+	httpClientsDetails := pts.ArtDetails.CreateHttpClientDetails()
+	log.Info("Getting permission target...")
+	resp, body, _, err := pts.client.SendGet(pts.ArtDetails.GetUrl()+"api/v2/security/permissions/"+permissionTargetName, true, &httpClientsDetails)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + clientutils.IndentJson(body)))
+	}
+
+	log.Debug("Artifactory response:", resp.Status)
+	permissionTarget := &PermissionTargetParams{}
+	if err := json.Unmarshal(body, permissionTarget); err != nil {
+		return nil, err
+	}
+	return permissionTarget, nil
 }
 
 func (pts *PermissionTargetService) Create(params PermissionTargetParams) error {
@@ -74,7 +93,11 @@ func (pts *PermissionTargetService) performRequest(params PermissionTargetParams
 		return err
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + clientutils.IndentJson(body)))
+		err = errors.New("Artifactory response: " + resp.Status + "\n" + clientutils.IndentJson(body))
+		if resp.StatusCode == http.StatusConflict {
+			return errorutils.CheckError(&PermissionTargetAlreadyExistsError{InnerError: err})
+		}
+		return errorutils.CheckError(err)
 	}
 	log.Debug("Artifactory response:", resp.Status)
 	log.Info("Done " + operationString + " permission target.")
@@ -85,21 +108,31 @@ func NewPermissionTargetParams() PermissionTargetParams {
 	return PermissionTargetParams{}
 }
 
+// Using struct pointers to keep the fields null if they are empty.
+// Artifactory evaluates inner struct typed fields if they are not null, which can lead to failures in the request.
 type PermissionTargetParams struct {
-	Name          string                  `json:"name"`
-	Repo          PermissionTargetSection `json:"repo,omitempty"`
-	Build         PermissionTargetSection `json:"build,omitempty"`
-	ReleaseBundle PermissionTargetSection `json:"releaseBundle,omitempty"`
+	Name          string                   `json:"name"`
+	Repo          *PermissionTargetSection `json:"repo,omitempty"`
+	Build         *PermissionTargetSection `json:"build,omitempty"`
+	ReleaseBundle *PermissionTargetSection `json:"releaseBundle,omitempty"`
 }
 
 type PermissionTargetSection struct {
 	IncludePatterns []string `json:"include-patterns,omitempty"`
 	ExcludePatterns []string `json:"exclude-patterns,omitempty"`
 	Repositories    []string `json:"repositories"`
-	Actions         Actions  `json:"actions,omitempty"`
+	Actions         *Actions `json:"actions,omitempty"`
 }
 
 type Actions struct {
 	Users  map[string][]string `json:"users,omitempty"`
 	Groups map[string][]string `json:"groups,omitempty"`
+}
+
+type PermissionTargetAlreadyExistsError struct {
+	InnerError error
+}
+
+func (*PermissionTargetAlreadyExistsError) Error() string {
+	return "Artifactory: Permission target already exists."
 }

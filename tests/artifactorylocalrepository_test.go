@@ -8,6 +8,7 @@ import (
 )
 
 func TestArtifactoryLocalRepository(t *testing.T) {
+	initArtifactoryTest(t)
 	t.Run("localMavenTest", localMavenTest)
 	t.Run("localGradleTest", localGradleTest)
 	t.Run("localIvyTest", localIvyTest)
@@ -35,6 +36,7 @@ func TestArtifactoryLocalRepository(t *testing.T) {
 	t.Run("localGenericTest", localGenericTest)
 	t.Run("getLocalRepoDetailsTest", getLocalRepoDetailsTest)
 	t.Run("getAllLocalRepoDetailsTest", getAllLocalRepoDetailsTest)
+	t.Run("localCreateWithParamTest", localCreateWithParamTest)
 }
 
 func localMavenTest(t *testing.T) {
@@ -109,7 +111,6 @@ func localIvyTest(t *testing.T) {
 	ilp.Description = "Ivy Repo for jfrog-client-go local-repository-test"
 	ilp.IncludesPattern = "dir1/*,dir3/*"
 	ilp.ExcludesPattern = "dir3/*"
-	ilp.DownloadRedirect = &trueValue
 	ilp.BlackedOut = &falseValue
 	ilp.XrayIndex = &trueValue
 
@@ -138,7 +139,6 @@ func localSbtTest(t *testing.T) {
 	slp.Description = "Sbt Repo for jfrog-client-go local-repository-test"
 	slp.IncludesPattern = "dir1/*,dir2/*"
 	slp.ExcludesPattern = "dir3/*"
-	slp.DownloadRedirect = &trueValue
 	slp.BlackedOut = &falseValue
 
 	err := testsCreateLocalRepositoryService.Sbt(slp)
@@ -164,7 +164,6 @@ func localHelmTest(t *testing.T) {
 	hlp.RepoLayoutRef = "simple-default"
 	hlp.Description = "Helm Repo for jfrog-client-go local-repository-test"
 	hlp.IncludesPattern = "*/**"
-	hlp.DownloadRedirect = &trueValue
 	hlp.BlackedOut = &falseValue
 
 	err := testsCreateLocalRepositoryService.Helm(hlp)
@@ -222,7 +221,6 @@ func localNugetTest(t *testing.T) {
 	nlp.Description = "Nuget Repo for jfrog-client-go local-repository-test"
 	nlp.IncludesPattern = "dir1/*"
 	nlp.ExcludesPattern = "dir2/*"
-	nlp.DownloadRedirect = &trueValue
 	nlp.XrayIndex = &trueValue
 	nlp.ForceNugetAuthentication = &falseValue
 	nlp.MaxUniqueSnapshots = 24
@@ -254,7 +252,6 @@ func localCranTest(t *testing.T) {
 	clp.Description = "Cran Repo for jfrog-client-go local-repository-test"
 	clp.IncludesPattern = "dir1/*"
 	clp.ExcludesPattern = "dir2/*"
-	clp.DownloadRedirect = &trueValue
 	clp.BlackedOut = &falseValue
 	clp.XrayIndex = &trueValue
 
@@ -283,7 +280,6 @@ func localGemsTest(t *testing.T) {
 	glp.Description = "Gems Repo for jfrog-client-go local-repository-test"
 	glp.IncludesPattern = "*/**"
 	glp.ExcludesPattern = "dirEx/*"
-	glp.DownloadRedirect = &trueValue
 	glp.BlackedOut = &trueValue
 	glp.ArchiveBrowsingEnabled = &trueValue
 	glp.XrayIndex = &trueValue
@@ -313,7 +309,6 @@ func localNpmTest(t *testing.T) {
 	nlp.Description = "Npm Repo for jfrog-client-go local-repository-test"
 	nlp.IncludesPattern = "dir1/*"
 	nlp.ExcludesPattern = "dir2/*"
-	nlp.DownloadRedirect = &trueValue
 	nlp.XrayIndex = &trueValue
 
 	err := testsCreateLocalRepositoryService.Npm(nlp)
@@ -339,7 +334,6 @@ func localBowerTest(t *testing.T) {
 	blp.Key = repoKey
 	blp.RepoLayoutRef = "bower-default"
 	blp.Description = "Boer Repo for jfrog-client-go local-repository-test"
-	blp.DownloadRedirect = &trueValue
 	blp.BlackedOut = &trueValue
 	blp.XrayIndex = &falseValue
 
@@ -370,7 +364,6 @@ func localDebianTest(t *testing.T) {
 	dlp.IncludesPattern = "Debian1/*,dir3/*"
 	dlp.ExcludesPattern = "dir3/*"
 	dlp.DebianTrivialLayout = &trueValue
-	dlp.DownloadRedirect = &trueValue
 	dlp.BlackedOut = &falseValue
 	dlp.XrayIndex = &trueValue
 
@@ -414,7 +407,6 @@ func localPypiTest(t *testing.T) {
 	plp.ExcludesPattern = "dir2/*"
 	plp.BlackedOut = &trueValue
 	plp.XrayIndex = &trueValue
-	plp.DownloadRedirect = &trueValue
 
 	err = testsUpdateLocalRepositoryService.Pypi(plp)
 	assert.NoError(t, err, "Failed to update "+repoKey)
@@ -428,7 +420,6 @@ func localDockerTest(t *testing.T) {
 	dlp.RepoLayoutRef = "simple-default"
 	dlp.Description = "Docker Repo for jfrog-client-go local-repository-test"
 	dlp.IncludesPattern = "*/**"
-	dlp.DownloadRedirect = &trueValue
 	dlp.BlackedOut = &falseValue
 	dlp.DockerApiVersion = "V1"
 	dlp.MaxUniqueTags = 18
@@ -462,7 +453,6 @@ func localGitlfsTest(t *testing.T) {
 	glp.Description = "Gitlfs Repo for jfrog-client-go local-repository-test"
 	glp.IncludesPattern = "dir1/*,dir3/*"
 	glp.ExcludesPattern = "dir3/*"
-	glp.DownloadRedirect = &trueValue
 	glp.BlackedOut = &falseValue
 	glp.XrayIndex = &trueValue
 
@@ -517,7 +507,6 @@ func localYumTest(t *testing.T) {
 	ylp.Description = "Yum Repo for jfrog-client-go local-repository-test"
 	ylp.IncludesPattern = "dir1/*"
 	ylp.ExcludesPattern = "dir2/*"
-	ylp.DownloadRedirect = &trueValue
 	ylp.BlackedOut = &falseValue
 	ylp.XrayIndex = &trueValue
 
@@ -548,7 +537,6 @@ func localConanTest(t *testing.T) {
 	clp.Description = "Conan Repo for jfrog-client-go local-repository-test"
 	clp.IncludesPattern = "*/**"
 	clp.ExcludesPattern = "ConanEx/*"
-	clp.DownloadRedirect = &trueValue
 	clp.ArchiveBrowsingEnabled = &trueValue
 	clp.XrayIndex = &trueValue
 
@@ -591,7 +579,6 @@ func localChefTest(t *testing.T) {
 	clp.ExcludesPattern = "dir2/*"
 	clp.BlackedOut = &falseValue
 	clp.XrayIndex = &trueValue
-	clp.DownloadRedirect = &trueValue
 
 	err = testsUpdateLocalRepositoryService.Chef(clp)
 	assert.NoError(t, err, "Failed to update "+repoKey)
@@ -619,7 +606,6 @@ func localPuppetTest(t *testing.T) {
 	plp.ExcludesPattern = "dir2/*"
 	plp.BlackedOut = &trueValue
 	plp.XrayIndex = &trueValue
-	plp.DownloadRedirect = &trueValue
 
 	err = testsUpdateLocalRepositoryService.Puppet(plp)
 	assert.NoError(t, err, "Failed to update "+repoKey)
@@ -767,6 +753,16 @@ func localGenericTest(t *testing.T) {
 	validateRepoConfig(t, repoKey, glp)
 }
 
+func localCreateWithParamTest(t *testing.T) {
+	repoKey := GenerateRepoKeyForRepoServiceTest()
+	params := services.NewLocalRepositoryBaseParams()
+	params.Key = repoKey
+	err := testsRepositoriesService.CreateLocal(params)
+	assert.NoError(t, err, "Failed to create "+repoKey)
+	defer deleteRepo(t, repoKey)
+	validateRepoConfig(t, repoKey, params)
+}
+
 func getLocalRepoDetailsTest(t *testing.T) {
 	// Create Repo
 	repoKey := GenerateRepoKeyForRepoServiceTest()
@@ -786,7 +782,7 @@ func getLocalRepoDetailsTest(t *testing.T) {
 	// Validate
 	assert.Equal(t, data.Key, repoKey)
 	assert.Equal(t, data.Description, glp.Description)
-	assert.Equal(t, data.Rclass, "local")
+	assert.Equal(t, data.GetRepoType(), "local")
 	assert.Empty(t, data.Url)
 	assert.Equal(t, data.PackageType, "generic")
 }
@@ -806,7 +802,7 @@ func getAllLocalRepoDetailsTest(t *testing.T) {
 	assert.NoError(t, err, "Failed to create "+repoKey)
 	defer deleteRepo(t, repoKey)
 	// Get repo details
-	data := getAllRepos(t)
+	data := getAllRepos(t, "local", "")
 	assert.NotNil(t, data)
 	repo := &services.RepositoryDetails{}
 	for _, v := range *data {

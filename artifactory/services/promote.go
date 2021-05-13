@@ -37,11 +37,17 @@ func (ps *PromoteService) BuildPromote(promotionParams PromotionParams) error {
 
 	promoteUrl := ps.ArtDetails.GetUrl()
 	restApi := path.Join("api/build/promote/", promotionParams.GetBuildName(), promotionParams.GetBuildNumber())
-	requestFullUrl, err := utils.BuildArtifactoryUrl(promoteUrl, restApi, make(map[string]string))
+
+	queryParams := make(map[string]string)
+	if promotionParams.ProjectKey != "" {
+		queryParams["project"] = promotionParams.ProjectKey
+	}
+
+	requestFullUrl, err := utils.BuildArtifactoryUrl(promoteUrl, restApi, queryParams)
 	if err != nil {
 		return err
 	}
-	props, err := utils.ParseProperties(promotionParams.GetProperties(), utils.JoinCommas)
+	props, err := utils.ParseProperties(promotionParams.GetProperties())
 	if err != nil {
 		return err
 	}
@@ -50,6 +56,7 @@ func (ps *PromoteService) BuildPromote(promotionParams PromotionParams) error {
 		Status:              promotionParams.GetStatus(),
 		Comment:             promotionParams.GetComment(),
 		Copy:                promotionParams.IsCopy(),
+		FailFast:            promotionParams.IsFailFast(),
 		IncludeDependencies: promotionParams.IsIncludeDependencies(),
 		SourceRepo:          promotionParams.GetSourceRepo(),
 		TargetRepo:          promotionParams.GetTargetRepo(),
@@ -84,6 +91,7 @@ type BuildPromotionBody struct {
 	Status              string              `json:"status,omitempty"`
 	IncludeDependencies bool                `json:"dependencies,omitempty"`
 	Copy                bool                `json:"copy,omitempty"`
+	FailFast            bool                `json:"failFast,omitempty"`
 	DryRun              bool                `json:"dryRun,omitempty"`
 	Properties          map[string][]string `json:"properties,omitempty"`
 }
@@ -91,10 +99,12 @@ type BuildPromotionBody struct {
 type PromotionParams struct {
 	BuildName           string
 	BuildNumber         string
+	ProjectKey          string
 	TargetRepo          string
 	Status              string
 	Comment             string
 	Copy                bool
+	FailFast            bool
 	IncludeDependencies bool
 	SourceRepo          string
 	Properties          string
@@ -106,6 +116,10 @@ func (bp *PromotionParams) GetBuildName() string {
 
 func (bp *PromotionParams) GetBuildNumber() string {
 	return bp.BuildNumber
+}
+
+func (bp *PromotionParams) GetProjectKey() string {
+	return bp.ProjectKey
 }
 
 func (bp *PromotionParams) GetTargetRepo() string {
@@ -122,6 +136,10 @@ func (bp *PromotionParams) GetComment() string {
 
 func (bp *PromotionParams) IsCopy() bool {
 	return bp.Copy
+}
+
+func (bp *PromotionParams) IsFailFast() bool {
+	return bp.FailFast
 }
 
 func (bp *PromotionParams) IsIncludeDependencies() bool {

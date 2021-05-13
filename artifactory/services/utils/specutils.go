@@ -1,6 +1,7 @@
 package utils
 
 import (
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"strings"
 )
 
@@ -24,7 +25,7 @@ type ArtifactoryCommonParams struct {
 	Exclusions       []string
 	Target           string
 	Props            string
-	TargetProps      string
+	TargetProps      *Properties
 	ExcludeProps     string
 	SortOrder        string
 	SortBy           []string
@@ -37,7 +38,9 @@ type ArtifactoryCommonParams struct {
 	Recursive        bool
 	IncludeDirs      bool
 	Regexp           bool
+	Ant              bool
 	ArchiveEntries   string
+	Transitive       bool
 }
 
 type FileGetter interface {
@@ -58,11 +61,11 @@ type FileGetter interface {
 	GetBuild() string
 	GetBundle() string
 	GetSpecType() (specType SpecType)
-	IsRegexp() bool
 	IsRecursive() bool
 	IsIncludeDirs() bool
 	GetArchiveEntries() string
 	SetArchiveEntries(archiveEntries string)
+	GetPatternType() clientutils.PatternType
 }
 
 func (params ArtifactoryCommonParams) GetArchiveEntries() string {
@@ -93,7 +96,7 @@ func (params *ArtifactoryCommonParams) GetProps() string {
 	return params.Props
 }
 
-func (params *ArtifactoryCommonParams) GetTargetProps() string {
+func (params *ArtifactoryCommonParams) GetTargetProps() *Properties {
 	return params.TargetProps
 }
 
@@ -109,8 +112,8 @@ func (params *ArtifactoryCommonParams) IsRecursive() bool {
 	return params.Recursive
 }
 
-func (params *ArtifactoryCommonParams) IsRegexp() bool {
-	return params.Regexp
+func (params *ArtifactoryCommonParams) GetPatternType() clientutils.PatternType {
+	return clientutils.GetPatternType(clientutils.PatternTypes{RegExp: params.Regexp, Ant: params.Ant})
 }
 
 func (params *ArtifactoryCommonParams) GetAql() Aql {
@@ -133,7 +136,7 @@ func (params *ArtifactoryCommonParams) SetProps(props string) {
 	params.Props = props
 }
 
-func (params *ArtifactoryCommonParams) SetTargetProps(targetProps string) {
+func (params *ArtifactoryCommonParams) SetTargetProps(targetProps *Properties) {
 	params.TargetProps = targetProps
 }
 

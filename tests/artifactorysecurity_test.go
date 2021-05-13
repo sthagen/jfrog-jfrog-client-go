@@ -2,6 +2,7 @@ package tests
 
 import (
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,6 +20,7 @@ const tokenRevokeSuccessResponse = "Token revoked"
 const tokenNotFoundResponse = "Token not found"
 
 func TestToken(t *testing.T) {
+	initArtifactoryTest(t)
 	t.Run("CreateToken", createTokenTest)
 	t.Run("RevokeToken", revokeTokenTest)
 	t.Run("RevokeToken: token not found", revokeTokenNotFoundTest)
@@ -28,45 +30,116 @@ func TestToken(t *testing.T) {
 }
 
 func TestAPIKey(t *testing.T) {
+	initArtifactoryTest(t)
+	t.Run("Create API Key", createAPIKeyTest)
 	t.Run("Regenerate API Key", regenerateAPIKeyTest)
+	t.Run("Get API Key", getAPIKeyTest)
+	t.Run("Get Empty API Key", getEmptyAPIKeyTest)
+}
+
+func createAPIKeyTest(t *testing.T) {
+	expectedApiKey := "new-api-key"
+	tls := createArtifactoryTLSServer(t, http.MethodPost, expectedApiKey, http.StatusCreated)
+	defer tls.Close()
+
+	apiKeyService, err := createDummySecurityService(tls.URL, true)
+	if err != nil {
+		assert.NoError(t, err)
+		return
+	}
+	key, err := apiKeyService.CreateAPIKey()
+	if err != nil {
+		assert.NoError(t, err)
+		return
+	}
+	assert.Equal(t, expectedApiKey, key)
 }
 
 func regenerateAPIKeyTest(t *testing.T) {
-	securityAPIKeyPath := services.APIKeyPath
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			t.Fatalf("Expected PUT but got request with method: %s", r.Method)
-		}
-		if r.URL.Path != "/"+securityAPIKeyPath {
-			t.Fatalf("Expected request path to be %s, got %s\n", securityAPIKeyPath, r.URL.Path)
-		}
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf(`{"apiKey": "new-api-key"}`)))
-	})
-	ts := httptest.NewTLSServer(handler)
-	defer ts.Close()
+	expectedApiKey := "new-api-key"
+	tls := createArtifactoryTLSServer(t, http.MethodPut, expectedApiKey, http.StatusOK)
+	defer tls.Close()
 
+	apiKeyService, err := createDummySecurityService(tls.URL, true)
+	if err != nil {
+		assert.NoError(t, err)
+		return
+	}
+	key, err := apiKeyService.RegenerateAPIKey()
+	if err != nil {
+		assert.NoError(t, err)
+		return
+	}
+	assert.Equal(t, expectedApiKey, key)
+}
+
+func getAPIKeyTest(t *testing.T) {
+	expectedApiKey := "new-api-key"
+	getAPIKeyTestCore(t, expectedApiKey)
+}
+
+// The GetAPIKey service returns empty string if an API Key wasn't generated.
+func getEmptyAPIKeyTest(t *testing.T) {
+	expectedApiKey := ""
+	getAPIKeyTestCore(t, expectedApiKey)
+}
+
+func getAPIKeyTestCore(t *testing.T, expectedApiKey string) {
+	tls := createArtifactoryTLSServer(t, http.MethodGet, expectedApiKey, http.StatusOK)
+	defer tls.Close()
+
+	apiKeyService, err := createDummySecurityService(tls.URL, true)
+	if err != nil {
+		assert.NoError(t, err)
+		return
+	}
+	key, err := apiKeyService.GetAPIKey()
+	if err != nil {
+		assert.NoError(t, err)
+		return
+	}
+	assert.Equal(t, expectedApiKey, key)
+}
+
+func createArtifactoryTLSServer(t *testing.T, expectedRequest, expectedApiKey string, expectedStatusCode int) *httptest.Server {
+	returnValue := fmt.Sprintf(`{"apiKey": "%s"}`, expectedApiKey)
+	if expectedApiKey == "" {
+		returnValue = `{}`
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, expectedRequest, r.Method)
+		assert.Equal(t, "/"+services.APIKeyPath, r.URL.Path)
+		w.WriteHeader(expectedStatusCode)
+		_, err := w.Write([]byte(returnValue))
+		assert.NoError(t, err)
+	})
+	return httptest.NewTLSServer(handler)
+}
+
+func createDummySecurityService(tlsUrl string, setApiKey bool) (*services.SecurityService, error) {
 	rtDetails := auth.NewArtifactoryDetails()
-	rtDetails.SetUrl(ts.URL + "/")
-	rtDetails.SetApiKey("fake-api-key")
+	rtDetails.SetUrl(tlsUrl + "/")
+	rtDetails.SetUser("fake-user")
+
+	if setApiKey {
+		rtDetails.SetApiKey("fake-api-key")
+	} else {
+		rtDetails.SetPassword("fake-pass")
+	}
 
 	client, err := jfroghttpclient.JfrogClientBuilder().
 		SetInsecureTls(true).
-		SetServiceDetails(&rtDetails).
+		SetClientCertPath(rtDetails.GetClientCertPath()).
+		SetClientCertKeyPath(rtDetails.GetClientCertKeyPath()).
+		AppendPreRequestInterceptor(rtDetails.RunPreRequestFunctions).
 		Build()
 	if err != nil {
-		t.Fatalf("Failed to create Artifactory client: %v\n", err)
+		return nil, err
 	}
 
 	apiKeyService := services.NewSecurityService(client)
 	apiKeyService.ArtDetails = rtDetails
-	key, err := apiKeyService.RegenerateAPIKey()
-	if err != nil {
-		t.Fatalf("Regeneration of api key failed with error: %v\n", err)
-	}
-	if key != "new-api-key" {
-		t.Fatalf("Expected new-api-key got %s", key)
-	}
+	return apiKeyService, nil
 }
 
 func createTokenTest(t *testing.T) {
@@ -134,6 +207,47 @@ func getTokensTest(t *testing.T) {
 		}
 	}
 	tokensToRevoke = append(tokensToRevoke, token.RefreshToken)
+}
+
+func getUserTokenstest(t *testing.T) {
+	token, err := createToken()
+	if err != nil {
+		t.Error(err)
+	}
+	tokens, err := testsSecurityService.GetUserTokens("anonymous")
+	if len(tokens) != 1 {
+		t.Error("Failed to get tokens of anonymous user")
+	}
+	if tokens[0] != token.AccessToken {
+		t.Error("Retried user token doesn't match expected token value")
+	}
+
+	tokensToRevoke = append(tokensToRevoke, token.RefreshToken)
+
+	params := services.NewCreateTokenParams()
+	params.Username = "test-user"
+	params.Scope = "api:* member-of-groups:readers"
+	params.Refreshable = true  // We need to use the refresh token to revoke these tokens on teardown
+	params.Audience = "jfrt@*" // Allow token to be accepted by all instances of Artifactory.
+
+	token1, err := testsSecurityService.CreateToken(params)
+	if err != nil {
+		t.Error(err)
+	}
+
+	token2, err := testsSecurityService.CreateToken(params)
+	if err != nil {
+		t.Error(err)
+	}
+	tokens, err = testsSecurityService.GetUserTokens("test-user")
+	if len(tokens) != 2 {
+		t.Error("Failed to get tokens of test-user")
+	}
+	if tokens[0] != token1.AccessToken || tokens[1] != token2.AccessToken {
+		t.Error("Retried user token doesn't match expected token value")
+	}
+	tokensToRevoke = append(tokensToRevoke, token1.RefreshToken)
+	tokensToRevoke = append(tokensToRevoke, token2.RefreshToken)
 }
 
 // Util function to revoke a token

@@ -43,7 +43,7 @@ func PrepareExcludePathPattern(params serviceutils.FileGetter) string {
 		for _, singleExcludePattern := range exclusions {
 			if len(singleExcludePattern) > 0 {
 				singleExcludePattern = utils.ReplaceTildeWithUserHome(singleExcludePattern)
-				singleExcludePattern = utils.PrepareLocalPathForUpload(singleExcludePattern, params.IsRegexp())
+				singleExcludePattern = utils.PrepareLocalPathForUpload(singleExcludePattern, params.GetPatternType())
 				if params.IsRecursive() && strings.HasSuffix(singleExcludePattern, fileutils.GetFileSeparator()) {
 					singleExcludePattern += "*"
 				}
@@ -92,15 +92,19 @@ func GetSingleFileToUpload(rootPath, targetPath string, flat, preserveSymLink bo
 	if !strings.HasSuffix(targetPath, "/") {
 		uploadPath = targetPath
 	} else {
+		var localPath string
 		// If not preserving symlinks and symlink target is valid, use symlink target for upload
 		if !preserveSymLink && symlinkPath != "" {
-			rootPath = symlinkPath
+			localPath = symlinkPath
+		} else {
+			localPath = rootPath
 		}
+
 		if flat {
-			uploadPath, _ = fileutils.GetFileAndDirFromPath(rootPath)
+			uploadPath, _ = fileutils.GetFileAndDirFromPath(localPath)
 			uploadPath = targetPath + uploadPath
 		} else {
-			uploadPath = targetPath + rootPath
+			uploadPath = targetPath + localPath
 			uploadPath = utils.TrimPath(uploadPath)
 		}
 	}
@@ -133,9 +137,9 @@ func GetFileSymlinkPath(filePath string) (string, error) {
 
 // Get the local root path, from which to start collecting artifacts to be uploaded to Artifactory.
 // If path dose not exist error will be returned.
-func GetRootPath(pattern, target string, isRegexp, preserveSymLink bool) (string, error) {
+func GetRootPath(pattern, target string, patternType clientutils.PatternType, preserveSymLink bool) (string, error) {
 	placeholderParentheses := clientutils.NewParenthesesSlice(pattern, target)
-	rootPath := utils.GetRootPath(pattern, isRegexp, placeholderParentheses)
+	rootPath := utils.GetRootPath(pattern, patternType, placeholderParentheses)
 	if !fileutils.IsPathExists(rootPath, preserveSymLink) {
 		return "", errorutils.CheckError(errors.New("Path does not exist: " + rootPath))
 	}

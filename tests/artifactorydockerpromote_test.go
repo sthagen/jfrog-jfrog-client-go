@@ -24,6 +24,7 @@ const (
 )
 
 func TestDockerPromote(t *testing.T) {
+	initArtifactoryTest(t)
 	// Create mock server
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check method
@@ -65,13 +66,14 @@ func createDockerPromoteService(t *testing.T, url string) *services.DockerPromot
 	// Create http client
 	client, err := jfroghttpclient.JfrogClientBuilder().
 		SetInsecureTls(true).
-		SetServiceDetails(&rtDetails).
+		SetClientCertPath(rtDetails.GetClientCertPath()).
+		SetClientCertKeyPath(rtDetails.GetClientCertKeyPath()).
+		AppendPreRequestInterceptor(rtDetails.RunPreRequestFunctions).
 		Build()
 	assert.NoError(t, err, "Failed to create Artifactory client: %v\n")
 
 	// Create docker promote service
-	dockerPromoteService := services.NewDockerPromoteService(client)
-	dockerPromoteService.ArtDetails = rtDetails
+	dockerPromoteService := services.NewDockerPromoteService(rtDetails, client)
 	return dockerPromoteService
 }
 

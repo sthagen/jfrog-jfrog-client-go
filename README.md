@@ -22,11 +22,8 @@
       - [Creating New Artifactory Service Manager](#creating-new-artifactory-service-manager)
     - [Using Artifactory Services](#using-artifactory-services)
       - [Uploading Files to Artifactory](#uploading-files-to-artifactory)
-        - [Uploading Files:](#uploading-files)
-        - [Uploading Files with Results Reader:](#uploading-files-with-results-reader)
       - [Downloading Files from Artifactory](#downloading-files-from-artifactory)
-        - [Downloading Files:](#downloading-files)
-        - [Downloading Files with Results Reader:](#downloading-files-with-results-reader)
+      - [Uploading and Downloading Files with Summary](#uploading-and-downloading-files-with-summary)
       - [Copying Files in Artifactory](#copying-files-in-artifactory)
       - [Moving Files in Artifactory](#moving-files-in-artifactory)
       - [Deleting Files from Artifactory](#deleting-files-from-artifactory)
@@ -45,9 +42,12 @@
       - [Reading Files in Artifactory](#reading-files-in-artifactory)
       - [Creating an Access Token](#creating-an-access-token)
       - [Fetching Access Tokens](#fetching-access-tokens)
+      - [Fetching Access Tokens of a User](#fetching-access-tokens-of-a-user)
       - [Refreshing an Access Token](#refreshing-an-access-token)
       - [Revoking an Access Token](#revoking-an-access-token)
+      - [Create API Key](#create-api-key)
       - [Regenerate API Key](#regenerate-api-key)
+      - [Get API Key](#get-api-key)
       - [Creating and Updating Local Repository](#creating-and-updating-local-repository)
       - [Creating and Updating Remote Repository](#creating-and-updating-remote-repository)
       - [Creating and Updating Virtual Repository](#creating-and-updating-virtual-repository)
@@ -59,9 +59,11 @@
       - [Removing a Repository Replication](#removing-a-repository-replication)
       - [Creating and Updating Permission Targets](#creating-and-updating-permission-targets)
       - [Removing a Permission Target](#removing-a-permission-target)
+      - [Fetching a Permission Target](#fetching-a-permission-target)
       - [Fetching Artifactory's Version](#fetching-artifactorys-version)
       - [Fetching Artifactory's Service ID](#fetching-artifactorys-service-id)
       - [Fetching Users Details](#fetching-users-details)
+      - [Fetching All Users Details](#fetching-all-users-details)
       - [Creating and Updating a User](#creating-and-updating-a-user)
       - [Deleting a User](#deleting-a-user)
       - [Fetching Group Details](#fetching-group-details)
@@ -110,10 +112,35 @@
       - [Creating Xray Service Config](#creating-xray-service-config)
       - [Creating New Xray Service Manager](#creating-new-xray-service-manager)
     - [Using Xray Services](#using-xray-services)
+      - [Fetching Xray's Version](#fetching-xrays-version)
       - [Creating an Xray Watch](#creating-an-xray-watch)
       - [Get an Xray Watch](#get-an-xray-watch)
       - [Update an Xray Watch](#update-an-xray-watch)
       - [Delete an Xray Watch](#delete-an-xray-watch)
+      - [Creating a Security Xray Policy](#creating-a-security-xray-policy)
+      - [Creating a License Xray Policy](#creating-a-license-xray-policy)
+      - [Get an Xray Policy](#get-an-xray-policy)
+      - [Update an Xray Policy](#update-an-xray-policy)
+      - [Delete an Xray Policy](#delete-an-xray-policy)
+      - [Add builds to indexing configuration](#add-builds-to-indexing-configuration)
+  - [Pipelines APIs](#pipelines-apis)
+    - [Creating Pipelines Service Manager](#creating-pipelines-service-manager)
+      - [Creating Pipelines Details](#creating-pipelines-details)
+      - [Creating Pipelines Service Config](#creating-pipelines-service-config)
+      - [Creating New Pipelines Service Manager](#creating-new-pipelines-service-manager)
+    - [Using Pipelines Services](#using-pipelines-services)
+      - [Fetching Pipelines' System Info](#fetching-pipelines-system-info)
+      - [Creating Github Integration](#creating-github-integration)
+      - [Creating Github Enterprise Integration](#creating-github-enterprise-integration)
+      - [Creating Bitbucket Integration](#creating-bitbucket-integration)
+      - [Creating Bitbucket Server Integration](#creating-bitbucket-server-integration)
+      - [Creating Gitlab Integration](#creating-gitlab-integration)
+      - [Creating Artifactory Integration](#creating-artifactory-integration)
+      - [Get Integration by Id](#get-integration-by-id)
+      - [Get Integration by Name](#get-integration-by-name)
+      - [Get All Integrations](#get-all-integrations)
+      - [Delete Integration](#delete-integration)
+      - [Add Pipeline Source](#add-pipeline-source)
 
 ## General
 _jfrog-client-go_ is a library which provides Go APIs to performs actions on JFrog Artifactory or Bintray from your Go application.
@@ -132,22 +159,35 @@ We welcome pull requests from the community.
 To run tests on the source code, you'll need a running JFrog Artifactory Pro instance.
 Use the following command with the below options to run the tests.
 ```sh
-go test -v github.com/jfrog/jfrog-client-go/tests
+go test -v github.com/jfrog/jfrog-client-go/tests [test-types] [flags]
 ```
 Optional flags:
 
 | Flag                | Description                                                                                            |
 | ------------------- | ------------------------------------------------------------------------------------------------------ |
 | `-rt.url`           | [Default: http://localhost:8081/artifactory] Artifactory URL.                                          |
+| `-ds.url`           | [Optional] JFrog Distribution URL.                                                                     |
+| `-xr.url`           | [Optional] JFrog Xray URL.                                                                             |
+| `-pipe.url`         | [Optional] JFrog Pipelines URL.                                                                        |
 | `-rt.user`          | [Default: admin] Artifactory username.                                                                 |
 | `-rt.password`      | [Default: password] Artifactory password.                                                              |
-| `-rt.distUrl`       | [Optional] JFrog Distribution URL.                                                                     |
-| `-rt.xrayUrl`       | [Optional] JFrog Xray URL.                                                                     |
 | `-rt.apikey`        | [Optional] Artifactory API key.                                                                        |
 | `-rt.sshKeyPath`    | [Optional] Ssh key file path. Should be used only if the Artifactory URL format is ssh://[domain]:port |
 | `-rt.sshPassphrase` | [Optional] Ssh key passphrase.                                                                         |
 | `-rt.accessToken`   | [Optional] Artifactory access token.                                                                   |
-| `-log-level`        | [Default: INFO] Sets the log level.                                                                    |
+| `-pipe.accessToken` | [Optional] Pipelines access token.                                                                     |
+| `-pipe.vcsToken`    | [Optional] Vcs token for Pipelines tests (should have admin permissions).                              |
+| `-pipe.vcsRepo`     | [Optional] Vcs full repo path for Pipelines tests (ex: "domain/myrepo").                               |
+| `-pipe.vcsBranch`   | [Optional] Vcs branch for Pipelines tests (ex: "main").                                                |
+
+The types are:
+
+| Type                | Description        |
+| ---                 | ---                |
+| `-test.artifactory` | Artifactory tests  |
+| `-test.distribution`| Distribution tests |
+| `-test.xray`        | Xray tests         |
+| `-test.pipelines`   | Pipelines tests    |
 
 - The tests create an Artifactory repository named _jfrog-client-tests-repo1_.<br/>
   Once the tests are completed, the content of this repository is deleted.
@@ -196,12 +236,11 @@ serviceConfig, err := config.NewConfigBuilder().
 
 #### Creating New Artifactory Service Manager
 ```go
-rtManager, err := artifactory.New(&rtDetails, serviceConfig)
+rtManager, err := artifactory.New(serviceConfig)
 ```
 
 ### Using Artifactory Services
 #### Uploading Files to Artifactory
-##### Uploading Files:
 Using the `UploadFiles()` function, we can upload files and get the general statistics of the action (The actual number of successful and failed uploads), and the error value if it occurred.
 ```go
 params := services.NewUploadParams()
@@ -216,6 +255,7 @@ params.Regexp = false
 params.IncludeDirs = false
 params.Flat = true
 params.Explode = false
+params.Archive = "zip"
 params.Deb = ""
 params.Symlink = false
 // Retries default value: 3
@@ -225,34 +265,8 @@ params.MinChecksumDeploy = 15360
 
 totalUploaded, totalFailed, err := rtManager.UploadFiles(params)
 ```
-##### Uploading Files with Results Reader:
-Similar to `UploadFlies()`, but returns a reader, which allows iterating over the details of the uploaded files. Only files which were successfully uploaded are available by the reader.
-```go
-params := services.NewUploadParams()
-params.Pattern = "repo/*/*.zip"
-params.Target = "repo/path/"
-// Attach properties to the uploaded files.
-params.TargetProps = "key1=val1;key2=val2"
-params.AddVcsProps = false
-params.BuildProps = "build.name=buildName;build.number=17;build.timestamp=1600856623553"
-params.Recursive = true
-params.Regexp = false
-params.IncludeDirs = false
-params.Flat = true
-params.Explode = false
-params.Deb = ""
-params.Symlink = false
-// Retries default value: 3
-params.Retries = 5
-// MinChecksumDeploy default value: 10400
-params.MinChecksumDeploy = 15360
-
-reader, totalUploaded, totalFailed, err := rtManager.UploadFilesWithResultReader(params)
-```
-Read more about [ContentReader](#using-contentReader).
 
 #### Downloading Files from Artifactory
-##### Downloading Files:
 Using the `DownloadFiles()` function, we can download files and get the general statistics of the action (The actual number of files downloaded, and the number of files we expected to download), and the error value if it occurred.
 ```go
 params := services.NewDownloadParams()
@@ -273,28 +287,35 @@ params.SplitCount = 2
 // MinSplitSize default value: 5120
 params.MinSplitSize = 7168
 
-totalDownloaded, totalExpected, err := rtManager.DownloadFiles(params)
+totalDownloaded, totalFailed, err := rtManager.DownloadFiles(params)
 ```
 
-##### Downloading Files with Results Reader:
-Similar to `DownloadFiles()`, but returns a reader, which allows iterating over the details of the downloaded files. Only files which were successfully downloaded are available by the reader.
-```go
-params := services.NewDownloadParams()
-params.Pattern = "repo/*/*.zip"
-params.Target = "target/path/"
-// Filter the downloaded files by properties.
-params.Props = "key1=val1;key2=val2"
-params.Recursive = true
-params.IncludeDirs = false
-params.Flat = false
-params.Explode = false
-params.Symlink = true
-params.ValidateSymlink = false
-params.Retries = 5
-params.SplitCount = 2
-params.MinSplitSize = 7168
+#### Uploading and Downloading Files with Summary
+The methods `UploadFilesWithSummary()` and `DownloadFilesWithSummary()` are similar to `UploadFlies()` and `DownloadFlies()`, but return an OperationSummary struct, which allows iterating over the details of the uploaded/downloaded files.<br>
+The OperationSummary struct contains:
+- TotalSucceeded - the number of successful uploads/downloads
+- TotalFailed - the number of failed uploads/downloads
+- TransferDetailsReader - a ContentReader of FileTransferDetails structs, with a struct for each successful transfer of file
+- ArtifactsDetailsReader - a ContentReader of ArtifactDetails structs, with a struct for each artifact in Artifactory that was uploaded/downloaded successfully
 
+The ContentReaders can be closed separately by calling `Close()` on each of them, or they both can be closed at once by calling `Close()` on the OperationSummary struct.
+```go
+params := services.NewUploadParams()
+params.Pattern = "repo/*/*.zip"
+params.Target = "repo/path/"
+
+summary, err := rtManager.UploadFilesWithSummary(params)
+defer summary.Close()
 reader, totalDownloaded, totalExpected, err := rtManager.DownloadFilesWithResultReader(params)
+
+// Iterate over each file
+for currentFileInfo := new(utils.FileInfo); reader.NextRecord(currentFileInfo) == nil; currentFileInfo = new(utils.FileInfo) {
+     fmt.Printf("File path: %s\n", currentFileInfo.LocalPath)
+}
+
+if err := reader.GetError(); err != nil {
+    return err
+}
 ```
 Read more about [ContentReader](#using-contentReader).
 
@@ -402,10 +423,10 @@ Read more about [ContentReader](#using-contentReader).
 #### Publishing Build Info to Artifactory
 ```go
 buildInfo := &buildinfo.BuildInfo{}
-// Optional Artifactory project name
-project := "my-project"
+// Optional Artifactory project key
+projectKey := "my-project-key"
 ...
-rtManager.PublishBuildInfo(buildInfo, project)
+rtManager.PublishBuildInfo(buildInfo, projectKey)
 ```
 
 #### Fetching Build Info from Artifactory
@@ -413,6 +434,8 @@ rtManager.PublishBuildInfo(buildInfo, project)
 buildInfoParams := services.NewBuildInfoParams{}
 buildInfoParams.BuildName = "buildName"
 buildInfoParams.BuildNumber = "LATEST"
+// Optional Artifactory project key
+buildInfoParams.ProjectKey = "my-project-key"
 
 rtManager.GetBuildInfo(buildInfoParams)
 ```
@@ -426,10 +449,13 @@ params.TargetRepo = "target-repo"
 params.Status = "status"
 params.Comment = "comment"
 params.Copy = true
+params.FailFast = true
 params.IncludeDependencies = false
 params.SourceRepo = "source-repo"
+// Optional Artifactory project key
+params.ProjectKey = "my-project-key"
 
-rtManager.DownloadFiles(params)
+rtManager.PromoteBuild(params)
 ```
 
 #### Promoting a Docker Image in Artifactory
@@ -482,6 +508,8 @@ params.MaxBuilds = "max-builds"
 params.ExcludeBuilds = "1,2"
 params.DeleteArtifacts = false
 params.Async = false
+// Optional Artifactory project key
+projectKey := "my-project-key"
 
 rtManager.DiscardBuilds(params)
 ```
@@ -527,6 +555,11 @@ results, err := rtManager.CreateToken(params)
 results, err := rtManager.GetTokens()
 ```
 
+#### Fetching Access Tokens of a User
+```g
+results, err := rtManager.GetUserTokens(username)
+```
+
 #### Refreshing an Access Token
 ```go
 params := services.NewRefreshTokenParams()
@@ -548,9 +581,20 @@ params.TokenId = "<token id>"
 err := rtManager.RevokeToken(params)
 ```
 
+#### Create API Key
+```go
+// Returns an error if API key already exists - use RegenerateAPIKey instead.
+apiKey, err := rtManager.CreateAPIKey()
+```
+
 #### Regenerate API Key
 ```go
 apiKey, err := rtManager.RegenerateAPIKey()
+```
+
+#### Get API Key
+```go
+apiKey, err := rtManager.GetAPIKey()
 ```
 
 #### Creating and Updating Local Repository
@@ -576,6 +620,15 @@ params.ExcludesPattern = "excludedDir/*"
 params.DownloadRedirect = true
 
 err = servicesManager.CreateLocalRepository().Generic(params)
+```
+
+You can also create a local repository with basic local params:
+```go
+params := services.NewLocalRepositoryBaseParams()
+params.Key = "generic-repo"
+params.PackageType = "generic"
+params.Description = "This is a public description for generic-repo"
+err := servicesManager.CreateLocalRepository(params)
 ```
 
 Updating local Generic repository:
@@ -615,6 +668,14 @@ Updating remote Maven repository:
 err = servicesManager.UpdateRemoteRepository().Maven(params)
 ```
 
+You can also create a remote repository with basic remote params:
+```go
+params := services.NewRemoteRepositoryBaseParams()
+params.Key = "remote-repo"
+params.Url = "http://jcenter.bintray.com"
+err := servicesManager.CreateRemoteRepository(params)
+```
+
 #### Creating and Updating Virtual Repository
 You can create and update a virtual repository for the following package types:
 
@@ -638,7 +699,17 @@ params.ArtifactoryRequestsCanRetrieveRemoteArtifacts = true
 err = servicesManager.CreateVirtualRepository().Go(params)
 ```
 
-Updating remote Maven repository:
+You can also create a virtual repository with basic virtual params:
+```go
+params := services.NewVirtualRepositoryBaseParams()
+params.Key = "generic-repo"
+params.PackageType = "generic"
+params.Description = "This is a public description for generic-repo"
+params.Repositories = string[]{"remote-repo","local-repo"}
+err := servicesManager.CreateVirtualRepository(params)
+```
+
+Updating virtual Go repository:
 ```go
 err = servicesManager.UpdateVirtualRepository().Go(params)
 ```
@@ -650,15 +721,37 @@ servicesManager.DeleteRepository("generic-repo")
 ```
 
 #### Getting Repository Details
-You can get repository details from Artifactory using its key:
+You can get repository details from Artifactory using its key, and the desired params struct.
+The function expects to get the repo key (name) and a pointer to a param struct that will be filled up.
+The param struct should contain the desired params fields corresponded to the Artifactory REST API: 
 ```go
-servicesManager.GetRepository("generic-repo")
+repoDetails = services.RepositoryDetails{}
+err := servicesManager.GetRepository("maven-repo", &repoDetails)
 ```
+
+```go
+repoDetails = services.LocalRepositoryBaseParams{}
+err := servicesManager.GetRepository("maven-repo", &repoDetails)
+```
+
+```go
+repoDetails = services.MavenLocalRepositoryParams{}
+err := servicesManager.GetRepository("maven-repo", &repoDetails)
+```
+services.RepositoryDetails
 
 #### Getting All Repositories
 You can get all repositories from Artifactory:
 ```go
 servicesManager.GetAllRepositories()
+```
+
+You can get all repositories from Artifactory filtered according to theirs type and/or theirs package type:
+```go
+params := services.NewRepositoriesFilterParams()
+params.RepoType = "remote"
+params.PackageType = "maven"
+err := servicesManager.GetAllRepositoriesFiltered(params)
 ```
 
 #### Creating and Updating Repository Replications
@@ -748,7 +841,13 @@ err = servicesManager.UpdatePermissionTarget(params)
 #### Removing a Permission Target
 You can remove a permission target from Artifactory using its name:
 ```go
-servicesManager.DeletePermissionTarget("java-developers")
+err = servicesManager.DeletePermissionTarget("java-developers")
+```
+
+#### Fetching a Permission Target
+You can fetch a permission target from Artifactory using its name:
+```go
+permissionTargetParams, err = servicesManager.GetPermissionTarget("java-developers")
 ```
 
 #### Fetching Artifactory's Version
@@ -767,6 +866,12 @@ params := services.NewUserParams()
 params.UserDetails.Name = "myUserName"
 
 user, err := serviceManager.GetUser(params)
+```
+
+#### Fetching All Users Details
+You can get all users from Artifactory:
+```go
+users, err := servicesManager.GetAllUsers()
 ```
 
 #### Creating and Updating a User
@@ -859,7 +964,7 @@ serviceConfig, err := config.NewConfigBuilder().
 
 #### Creating New Distribution Service Manager
 ```go
-distManager, err := distribution.New(&distDetails, serviceConfig)
+distManager, err := distribution.New(serviceConfig)
 ```
 
 ### Using Distribution Services
@@ -1048,8 +1153,8 @@ params.Path, err = packages.CreatePath("subject/repo/pkg")
 
 params.Desc = "description"
 params.Labels = "labels"
-params.Licenses = "licences"
-params.CustomLicenses = "custum-licenses"
+params.Licenses = "licenses"
+params.CustomLicenses = "custom-licenses"
 params.VcsUrl = "https://github.com/jfrog/jfrog-cli-go"
 params.WebsiteUrl = "https://jfrog.com"
 params.IssueTrackerUrl = "https://github.com/bintray/bintray-client-java/issues"
@@ -1204,7 +1309,7 @@ defer func() {
 
 // Iterate over the results.
 for currentResult := new(ResultItem); reader.NextRecord(currentResult) == nil; currentResult = new(ResultItem)  {
-    fmt.Printf("Found artifact: %s of type: %s\n", searchResult.Name, searchResult.Type)
+    fmt.Printf("Found artifact: %s of type: %s\n", currentResult.Name, currentResult.Type)
 }
 if err := resultReader.GetError(); err != nil {
     return err
@@ -1248,12 +1353,15 @@ serviceConfig, err := config.NewConfigBuilder().
 
 #### Creating New Xray Service Manager
 ```go
-xrayManager, err := xray.New(&xrayDetails, serviceConfig)
+xrayManager, err := xray.New(serviceConfig)
 ```
 
 ### Using Xray Services
+#### Fetching Xray's Version
+```go
+version, err := xrayManager.GetVersion()
+```
 #### Creating an Xray Watch
-
 This uses API version 2.
 
 You are able to configure repositories and builds on a watch.
@@ -1284,23 +1392,190 @@ params.Policies = []utils.AssignedPolicy{
   },
 }
 
-resp, err := xrayManager.CreateWatch(*params)
+err := xrayManager.CreateWatch(*params)
 ```
 
 #### Get an Xray Watch
 ```go
-watch, resp, err := xrayManager.GetWatch("example-watch-all")
+watch, err := xrayManager.GetWatch("example-watch-all")
 ```
 
 #### Update an Xray Watch
 ```go
-watch, resp, err := xrayManager.GetWatch("example-watch-all")
+watch, err := xrayManager.GetWatch("example-watch-all")
 watch.Description = "Updated description"
 
-resp, err := xrayManager.UpdateWatch(*watch)
+err := xrayManager.UpdateWatch(*watch)
 ```
 
 #### Delete an Xray Watch
 ```go
-resp, err := xrayManager.DeleteWatch("example-watch-all")
+err := xrayManager.DeleteWatch("example-watch-all")
+```
+
+#### Creating a Security Xray Policy
+```go
+params := utils.NewPolicyParams()
+params.Name = "example-security-policy"
+params.Type = utils.Security
+params.Description = "Security policy with 2 rules"
+params.Rules = []utils.PolicyRule{
+	{
+		Name:     "min-severity-rule",
+		Criteria: *utils.CreateSeverityPolicyCriteria(utils.Low),
+		Priority: 1,
+	},
+	{
+		Name:     "cvss-range-rule",
+		Criteria: *utils.CreateCvssRangePolicyCriteria(5.7, 8.9),
+		Priority: 2,
+		Actions: &utils.PolicyAction{
+			Webhooks: []string{"sec_webhook"},
+			BlockDownload: utils.PolicyBlockDownload{
+				Active:    true,
+				Unscanned: false,
+			},
+			BlockReleaseBundleDistribution: false,
+			FailBuild:                      true,
+			NotifyDeployer:                 false,
+			NotifyWatchRecipients:          true,
+			CustomSeverity:                 utils.Medium,
+		},
+	},
+}
+err := xrayManager.CreatePolicy(params)
+```
+
+#### Creating a License Xray Policy
+```go
+params := utils.NewPolicyParams()
+params.Name = "example-licence-policy"
+params.Type = utils.License
+params.Description = "License policy with 2 rules"
+params.Rules = []utils.PolicyRule{
+	{
+		Name:     "allowed-licenses",
+		Criteria: *utils.CreateLicensePolicyCriteria(true, true, false, "MIT", "Apache-2.0"),
+		Priority: 1,
+	},
+	{
+		Name:     "baned-licenses",
+		Criteria: *utils.CreateLicensePolicyCriteria(false, true, false, "GPL"),
+		Priority: 2,
+	},
+}
+err := xrayManager.CreatePolicy(params)
+```
+
+#### Get an Xray Policy
+```go
+policy, err := xrayManager.GetPolicy("example-policy")
+```
+
+#### Update an Xray Policy
+```go
+policy, err := xrayManager.GetPolicy("example-policy")
+policy.Description = "Updated description"
+
+err := xrayManager.UpdatePolicy(*policy)
+```
+
+#### Delete an Xray Policy
+```go
+err := xrayManager.DeletePolicy("example-policy")
+```
+
+#### Add builds to indexing configuration
+```go
+buildsToIndex := []string{"buildName1", "buildName2"}
+err := xrayManager.AddBuildsToIndexing(buildsToIndex)
+```
+
+## Pipelines APIs
+### Creating Pipelines Service Manager
+#### Creating Pipelines Details
+```go
+pipelinesDetails := auth.NewPipelinesDetails()
+pipelinesDetails.SetUrl("http://localhost:8081/pipelines")
+pipelinesDetails.SetAccessToken("accesstoken")
+// if client certificates are required
+pipelinesDetails.SetClientCertPath("path/to/.cer")
+pipelinesDetails.SetClientCertKeyPath("path/to/.key")
+```
+
+#### Creating Pipelines Service Config
+```go
+serviceConfig, err := config.NewConfigBuilder().
+    SetServiceDetails(pipelinesDetails).
+    SetCertificatesPath(pipelinesDetails.GetClientCertPath()).
+    Build()
+```
+
+#### Creating New Pipelines Service Manager
+```go
+pipelinesManager, err := pipelines.New(serviceConfig)
+```
+
+### Using Pipelines Services
+#### Fetching Pipelines' System Info
+```go
+systemInfo, err := pipelinesManager.GetSystemInfo()
+```
+
+#### Creating Github Integration
+```go
+id, err := pipelinesManager.CreateGithubIntegration("integrationName", "token")
+```
+
+#### Creating Github Enterprise Integration
+```go
+id, err := pipelinesManager.CreateGithubEnterpriseIntegration("integrationName", "url", "token")
+```
+
+#### Creating Bitbucket Integration
+```go
+id, err := pipelinesManager.CreateBitbucketIntegration("integrationName", "username", "token")
+```
+
+#### Creating Bitbucket Server Integration
+```go
+id, err := pipelinesManager.CreateBitbucketServerIntegration("integrationName", "url", "username", "passwordOrToken")
+```
+
+#### Creating Gitlab Integration
+```go
+id, err := pipelinesManager.CreateGitlabIntegration("integrationName", "url", "token")
+```
+
+#### Creating Artifactory Integration
+```go
+id, err := pipelinesManager.CreateArtifactoryIntegration("integrationName", "url", "username", "apikey")
+```
+
+#### Get Integration by Id
+```go
+integrationId := 1234
+integration, err := pipelinesManager.GetIntegrationById(integrationId)
+```
+
+#### Get Integration by Name
+```go
+integration, err := pipelinesManager.GetIntegrationByName("integrationName")
+```
+
+#### Get All Integrations
+```go
+integrations, err := pipelinesManager.GetAllIntegrations()
+```
+
+#### Delete Integration
+```go
+integrationId := 1234
+err := pipelinesManager.DeleteIntegration(integrationId)
+```
+
+#### Add Pipeline Source
+```go
+projectIntegrationId := 1234
+err := pipelinesManager.AddSource(projectIntegrationId, "domain/repo", "master", "pipelines.yml")
 ```

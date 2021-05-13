@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"github.com/jfrog/jfrog-client-go/utils/version"
 	"path/filepath"
 	"testing"
 
@@ -38,7 +39,8 @@ func TestReduceTopChainDirResult(t *testing.T) {
 	reader = content.NewContentReader(filepath.Join(testDataPath, "reduce_top_chain_step1.json"), content.DefaultKey)
 	resultReader, err = ReduceTopChainDirResult(ResultItem{}, reader)
 	assert.NoError(t, err)
-	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_a.json"), resultReader.GetFilePath())
+	assert.Equal(t, 1, len(resultReader.GetFilesPaths()))
+	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_a.json"), resultReader.GetFilesPaths()[0])
 	assert.NoError(t, err)
 	assert.True(t, isMatch)
 	assert.NoError(t, resultReader.Close())
@@ -47,7 +49,8 @@ func TestReduceTopChainDirResult(t *testing.T) {
 	reader = content.NewContentReader(filepath.Join(testDataPath, "reduce_top_chain_step2.json"), content.DefaultKey)
 	resultReader, err = ReduceTopChainDirResult(ResultItem{}, reader)
 	assert.NoError(t, err)
-	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_b.json"), resultReader.GetFilePath())
+	assert.Equal(t, 1, len(resultReader.GetFilesPaths()))
+	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_b.json"), resultReader.GetFilesPaths()[0])
 	assert.NoError(t, err)
 	assert.True(t, isMatch)
 	assert.NoError(t, resultReader.Close())
@@ -56,7 +59,8 @@ func TestReduceTopChainDirResult(t *testing.T) {
 	reader = content.NewContentReader(filepath.Join(testDataPath, "reduce_top_chain_step3.json"), content.DefaultKey)
 	resultReader, err = ReduceTopChainDirResult(ResultItem{}, reader)
 	assert.NoError(t, err)
-	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_b.json"), resultReader.GetFilePath())
+	assert.Equal(t, 1, len(resultReader.GetFilesPaths()))
+	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_b.json"), resultReader.GetFilesPaths()[0])
 	assert.NoError(t, err)
 	assert.True(t, isMatch)
 	assert.NoError(t, resultReader.Close())
@@ -68,7 +72,8 @@ func TestReduceTopChainDirResult(t *testing.T) {
 	reader = content.NewContentReader(filepath.Join(testDataPath, "reduce_top_chain_step4.json"), content.DefaultKey)
 	resultReader, err = ReduceTopChainDirResult(ResultItem{}, reader)
 	assert.NoError(t, err)
-	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_c.json"), resultReader.GetFilePath())
+	assert.Equal(t, 1, len(resultReader.GetFilesPaths()))
+	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_c.json"), resultReader.GetFilesPaths()[0])
 	assert.NoError(t, err)
 	assert.True(t, isMatch)
 	assert.NoError(t, resultReader.Close())
@@ -77,7 +82,8 @@ func TestReduceTopChainDirResult(t *testing.T) {
 	reader = content.NewContentReader(filepath.Join(testDataPath, "reduce_top_chain_step5.json"), content.DefaultKey)
 	resultReader, err = ReduceTopChainDirResult(ResultItem{}, reader)
 	assert.NoError(t, err)
-	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_d.json"), resultReader.GetFilePath())
+	assert.Equal(t, 1, len(resultReader.GetFilesPaths()))
+	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_d.json"), resultReader.GetFilesPaths()[0])
 	assert.NoError(t, err)
 	assert.True(t, isMatch)
 	assert.NoError(t, resultReader.Close())
@@ -86,7 +92,8 @@ func TestReduceTopChainDirResult(t *testing.T) {
 	reader = content.NewContentReader(filepath.Join(testDataPath, "reduce_top_chain_step6.json"), content.DefaultKey)
 	resultReader, err = ReduceTopChainDirResult(ResultItem{}, reader)
 	assert.NoError(t, err)
-	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_e.json"), resultReader.GetFilePath())
+	assert.Equal(t, 1, len(resultReader.GetFilesPaths()))
+	isMatch, err = fileutils.FilesIdentical(filepath.Join(testDataPath, "reduce_top_chain_results_e.json"), resultReader.GetFilesPaths()[0])
 	assert.NoError(t, err)
 	assert.True(t, isMatch)
 	assert.NoError(t, resultReader.Close())
@@ -122,16 +129,40 @@ func TestReduceBottomChainDirResult(t *testing.T) {
 			reader := content.NewContentReader(filepath.Join(testDataPath, fmt.Sprintf("reduce_bottom_chain_step%v.json", i)), content.DefaultKey)
 			resultReader, err := ReduceBottomChainDirResult(ResultItem{}, reader)
 			assert.NoError(t, err)
-			isMatch, err := fileutils.FilesIdentical(filepath.Join(testDataPath, fmt.Sprintf("reduce_bottom_chain_step%vresults.json", testResult[i-1])), resultReader.GetFilePath())
+			assert.Equal(t, 1, len(resultReader.GetFilesPaths()))
+			isMatch, err := fileutils.FilesIdentical(filepath.Join(testDataPath, fmt.Sprintf("reduce_bottom_chain_step%vresults.json", testResult[i-1])), resultReader.GetFilesPaths()[0])
 			assert.NoError(t, err)
 			assert.True(t, isMatch)
 			if isMatch == false {
 				l, _ := resultReader.Length()
-				log.Debug(fmt.Sprintf("reduce_bottom_chain_step%v.json  length: %v name %v", i, l, resultReader.GetFilePath()))
+				log.Debug(fmt.Sprintf("reduce_bottom_chain_step%v.json  length: %v name %v", i, l, resultReader.GetFilesPaths()))
 			} else {
 				assert.NoError(t, resultReader.Close())
 			}
 		}
 		utils.MaxBufferSize = 2
+	}
+}
+
+func TestValidateTransitiveSearchAllowed(t *testing.T) {
+	tests := []struct {
+		params             *ArtifactoryCommonParams
+		artifactoryVersion *version.Version
+		expectedTransitive bool
+	}{
+		{&ArtifactoryCommonParams{Transitive: true}, version.NewVersion("7.0.0"), false},
+		{&ArtifactoryCommonParams{Transitive: true}, version.NewVersion("7.17.0"), true},
+		{&ArtifactoryCommonParams{Transitive: true}, version.NewVersion("7.17.0-m029"), true},
+		{&ArtifactoryCommonParams{Transitive: true}, version.NewVersion("7.19.0"), true},
+		{&ArtifactoryCommonParams{Transitive: false}, version.NewVersion("7.0.0"), false},
+		{&ArtifactoryCommonParams{Transitive: false}, version.NewVersion("7.17.0"), false},
+		{&ArtifactoryCommonParams{Transitive: false}, version.NewVersion("7.17.0-m029"), false},
+		{&ArtifactoryCommonParams{Transitive: false}, version.NewVersion("7.19.0"), false},
+	}
+	for _, test := range tests {
+		t.Run(fmt.Sprintf("transitive:%t,version:%s", test.params.Transitive, test.artifactoryVersion.GetVersion()), func(t *testing.T) {
+			DisableTransitiveSearchIfNotAllowed(test.params, test.artifactoryVersion)
+			assert.Equal(t, test.expectedTransitive, test.params.Transitive)
+		})
 	}
 }

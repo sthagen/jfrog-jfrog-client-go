@@ -1,7 +1,6 @@
 package distribution
 
 import (
-	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/config"
 	"github.com/jfrog/jfrog-client-go/distribution/services"
 	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
@@ -12,21 +11,18 @@ type DistributionServicesManager struct {
 	config config.Config
 }
 
-func New(details *auth.ServiceDetails, config config.Config) (*DistributionServicesManager, error) {
-	err := (*details).InitSsh()
-	if err != nil {
-		return nil, err
-	}
+func New(config config.Config) (*DistributionServicesManager, error) {
+	details := config.GetServiceDetails()
+	var err error
 	manager := &DistributionServicesManager{config: config}
 	manager.client, err = jfroghttpclient.JfrogClientBuilder().
 		SetCertificatesPath(config.GetCertificatesPath()).
 		SetInsecureTls(config.IsInsecureTls()).
-		SetServiceDetails(details).
+		SetClientCertPath(details.GetClientCertPath()).
+		SetClientCertKeyPath(details.GetClientCertKeyPath()).
+		AppendPreRequestInterceptor(details.RunPreRequestFunctions).
 		SetContext(config.GetContext()).
 		Build()
-	if err != nil {
-		return nil, err
-	}
 	return manager, err
 }
 
@@ -37,7 +33,7 @@ func (sm *DistributionServicesManager) SetSigningKey(params services.SetSigningK
 }
 
 func (sm *DistributionServicesManager) CreateReleaseBundle(params services.CreateReleaseBundleParams) error {
-	createBundleService := services.NewCreateReleseBundleService(sm.client)
+	createBundleService := services.NewCreateReleaseBundleService(sm.client)
 	createBundleService.DistDetails = sm.config.GetServiceDetails()
 	createBundleService.DryRun = sm.config.IsDryRun()
 	return createBundleService.CreateReleaseBundle(params)

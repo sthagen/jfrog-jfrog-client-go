@@ -39,6 +39,7 @@ func (ps *XrayScanService) ScanBuild(scanParams XrayScanParams) ([]byte, error) 
 	data := XrayScanBody{
 		BuildName:   scanParams.GetBuildName(),
 		BuildNumber: scanParams.GetBuildNumber(),
+		Project:     scanParams.GetProjectKey(),
 		Context:     clientutils.GetUserAgent(),
 	}
 
@@ -131,12 +132,14 @@ type errorsStatusResponse struct {
 type XrayScanBody struct {
 	BuildName   string `json:"buildName,omitempty"`
 	BuildNumber string `json:"buildNumber,omitempty"`
+	Project     string `json:"project,omitempty"`
 	Context     string `json:"context,omitempty"`
 }
 
 type XrayScanParams struct {
 	BuildName   string
 	BuildNumber string
+	ProjectKey  string
 }
 
 func (bp *XrayScanParams) GetBuildName() string {
@@ -145,6 +148,10 @@ func (bp *XrayScanParams) GetBuildName() string {
 
 func (bp *XrayScanParams) GetBuildNumber() string {
 	return bp.BuildNumber
+}
+
+func (bp *XrayScanParams) GetProjectKey() string {
+	return bp.ProjectKey
 }
 
 func NewXrayScanParams() XrayScanParams {

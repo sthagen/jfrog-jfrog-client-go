@@ -20,6 +20,7 @@ const (
 	SYMLINK_FILE_CONTENT          = ""
 	File                 ItemType = "file"
 	Dir                  ItemType = "dir"
+	Any                  ItemType = "any"
 )
 
 func GetFileSeparator() string {
@@ -74,6 +75,20 @@ func GetFileInfo(path string, preserveSymLink bool) (fileInfo os.FileInfo, err e
 	return fileInfo, err
 }
 
+func IsDirEmpty(path string) (bool, error) {
+	dir, err := os.Open(path)
+	if err != nil {
+		return false, errorutils.CheckError(err)
+	}
+	defer dir.Close()
+
+	_, err = dir.Readdirnames(1)
+	if err == io.EOF {
+		return true, nil
+	}
+	return false, errorutils.CheckError(err)
+}
+
 func IsPathSymlink(path string) bool {
 	f, _ := os.Lstat(path)
 	return f != nil && IsFileSymlink(f)
@@ -83,18 +98,28 @@ func IsFileSymlink(file os.FileInfo) bool {
 	return file.Mode()&os.ModeSymlink != 0
 }
 
+// Return the file's name and dir of a given path by finding the index of the last separator in the path.
+// Support separators : "/" , "\\" and "\\\\"
 func GetFileAndDirFromPath(path string) (fileName, dir string) {
 	index1 := strings.LastIndex(path, "/")
 	index2 := strings.LastIndex(path, "\\")
 	var index int
+	offset := 0
 	if index1 >= index2 {
 		index = index1
 	} else {
 		index = index2
+		// Check if the last separator is "\\\\" or "\\".
+		index3 := strings.LastIndex(path, "\\\\")
+		if index3 != -1 && index2-index3 == 1 {
+			offset = 1
+		}
 	}
 	if index != -1 {
 		fileName = path[index+1:]
-		dir = path[:index]
+		// If the last separator is "\\\\" index will contain the index of the last "\\" ,
+		// to get the dir path (without separator suffix) we will use the offset's value.
+		dir = path[:index-offset]
 		return
 	}
 	fileName = path
@@ -105,7 +130,7 @@ func GetFileAndDirFromPath(path string) (fileName, dir string) {
 // Get the local path and filename from original file name and path according to targetPath
 func GetLocalPathAndFile(originalFileName, relativePath, targetPath string, flat bool) (localTargetPath, fileName string) {
 	targetFileName, targetDirPath := GetFileAndDirFromPath(targetPath)
-	localTargetPath = targetDirPath
+	localTargetPath = FixPathForWindows(targetDirPath)
 	if !flat {
 		localTargetPath = filepath.Join(targetDirPath, relativePath)
 	}
@@ -116,6 +141,10 @@ func GetLocalPathAndFile(originalFileName, relativePath, targetPath string, flat
 		fileName = targetFileName
 	}
 	return
+}
+
+func FixPathForWindows(path string) string {
+	return strings.Replace(path, "\\\\", "\\", -1)
 }
 
 // Return the recursive list of files and directories in the specified path
@@ -336,7 +365,27 @@ func calcChecksumDetails(filePath string) (ChecksumDetails, error) {
 	if errorutils.CheckError(err) != nil {
 		return ChecksumDetails{}, err
 	}
-	checksumInfo, err := checksum.Calc(file)
+	return calcChecksumDetailsFromReader(file)
+}
+
+func GetFileDetailsFromReader(reader io.Reader) (*FileDetails, error) {
+	var err error
+	details := new(FileDetails)
+
+	pr, pw := io.Pipe()
+	defer pr.Close()
+
+	go func() {
+		defer pw.Close()
+		details.Size, err = io.Copy(pw, reader)
+	}()
+
+	details.Checksum, err = calcChecksumDetailsFromReader(pr)
+	return details, err
+}
+
+func calcChecksumDetailsFromReader(reader io.Reader) (ChecksumDetails, error) {
+	checksumInfo, err := checksum.Calc(reader)
 	if err != nil {
 		return ChecksumDetails{}, err
 	}
@@ -474,9 +523,12 @@ func FindUpstream(itemToFInd string, itemType ItemType) (wd string, exists bool,
 	exists = false
 	for {
 		// If itemToFind is found in the current directory, return the path.
-		if itemType == File {
+		switch itemType {
+		case Any:
+			exists = IsPathExists(filepath.Join(wd, itemToFInd), false)
+		case File:
 			exists, err = IsFileExists(filepath.Join(wd, itemToFInd), false)
-		} else {
+		case Dir:
 			exists, err = IsDirExists(filepath.Join(wd, itemToFInd), false)
 		}
 		if err != nil || exists {

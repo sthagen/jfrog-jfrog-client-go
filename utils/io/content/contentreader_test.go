@@ -15,6 +15,8 @@ import (
 const (
 	searchResult      = "SearchResult.json"
 	emptySearchResult = "EmptySearchResult.json"
+	unsortedFile      = "UnsortedFile.json"
+	sortedFile        = "SortedFile.json"
 )
 
 type inputRecord struct {
@@ -36,7 +38,8 @@ func init() {
 func TestContentReaderPath(t *testing.T) {
 	searchResultPath := filepath.Join(getTestDataPath(), searchResult)
 	reader := NewContentReader(searchResultPath, DefaultKey)
-	assert.Equal(t, reader.GetFilePath(), searchResultPath)
+	assert.Equal(t, 1, len(reader.GetFilesPaths()))
+	assert.Equal(t, searchResultPath, reader.GetFilesPaths()[0])
 }
 
 func TestContentReaderNextRecord(t *testing.T) {
@@ -121,7 +124,8 @@ func TestMergeIncreasingSortedFiles(t *testing.T) {
 	}
 	resultReader, err := MergeSortedReaders(ReaderTestItem{}, sortedFiles, true)
 	assert.NoError(t, err)
-	isMatch, err := fileutils.FilesIdentical(resultReader.GetFilePath(), filepath.Join(testDataPath, "merged_buffer_ascending_order.json"))
+	assert.Equal(t, 1, len(resultReader.GetFilesPaths()))
+	isMatch, err := fileutils.FilesIdentical(resultReader.GetFilesPaths()[0], filepath.Join(testDataPath, "merged_buffer_ascending_order.json"))
 	assert.NoError(t, err)
 	assert.True(t, isMatch)
 	assert.NoError(t, resultReader.Close())
@@ -135,10 +139,33 @@ func TestMergeDecreasingSortedFiles(t *testing.T) {
 	}
 	resultReader, err := MergeSortedReaders(ReaderTestItem{}, sortedFiles, false)
 	assert.NoError(t, err)
-	isMatch, err := fileutils.FilesIdentical(resultReader.GetFilePath(), filepath.Join(testDataPath, "merged_buffer_descending_order.json"))
+	assert.Equal(t, 1, len(resultReader.GetFilesPaths()))
+	isMatch, err := fileutils.FilesIdentical(resultReader.GetFilesPaths()[0], filepath.Join(testDataPath, "merged_buffer_descending_order.json"))
 	assert.NoError(t, err)
 	assert.True(t, isMatch)
 	assert.NoError(t, resultReader.Close())
+}
+
+func TestSortContentReaderByCalculatedKey(t *testing.T) {
+	testDataPath := getTestDataPath()
+	unsortedFilePath := filepath.Join(testDataPath, unsortedFile)
+	reader := NewContentReader(unsortedFilePath, DefaultKey)
+
+	getSortKeyFunc := func(result interface{}) (string, error) {
+		resultItem := new(ReaderTestItem)
+		err := ConvertToStruct(result, &resultItem)
+		if err != nil {
+			return "", err
+		}
+		return resultItem.Name, nil
+	}
+
+	sortedReader, err := SortContentReaderByCalculatedKey(reader, getSortKeyFunc, true)
+	assert.NoError(t, err)
+	isMatch, err := fileutils.FilesIdentical(sortedReader.GetFilesPaths()[0], filepath.Join(testDataPath, sortedFile))
+	assert.NoError(t, err)
+	assert.True(t, isMatch)
+	assert.NoError(t, sortedReader.Close())
 }
 
 type ReaderTestItem struct {

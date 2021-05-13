@@ -13,6 +13,7 @@ import (
 )
 
 func TestCtx(t *testing.T) {
+	initArtifactoryTest(t)
 	t.Run("ctx", testCtx)
 	t.Run("ctxWithTimeout", testCtxTimeout)
 }
@@ -20,7 +21,7 @@ func TestCtx(t *testing.T) {
 func ctxMgr(t *testing.T, artDetails auth.ServiceDetails, ctx context.Context) (artifactory.ArtifactoryServicesManager, error) {
 	cfg, err := config.NewConfigBuilder().SetServiceDetails(artDetails).SetContext(ctx).Build()
 	assert.NoError(t, err)
-	return artifactory.New(&artDetails, cfg)
+	return artifactory.New(cfg)
 }
 
 func testCtx(t *testing.T) {

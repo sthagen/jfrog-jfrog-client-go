@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/auth"
@@ -31,6 +32,26 @@ func (ss *SecurityService) getArtifactoryDetails() auth.ServiceDetails {
 	return ss.ArtDetails
 }
 
+// Create an API key for the current user. Returns an error if API key already exists - use regenerate API key instead.
+func (ss *SecurityService) CreateAPIKey() (string, error) {
+	httpClientDetails := ss.ArtDetails.CreateHttpClientDetails()
+	reqURL, err := utils.BuildArtifactoryUrl(ss.ArtDetails.GetUrl(), APIKeyPath, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, body, err := ss.client.SendPost(reqURL, nil, &httpClientDetails)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusCreated {
+		return "", errors.New("API key creation failed with status: " + resp.Status + "\n" + clientutils.IndentJson(body))
+	}
+
+	return getApiKeyFromBody(body)
+}
+
 // RegenerateAPIKey regenerates the API Key in Artifactory
 func (ss *SecurityService) RegenerateAPIKey() (string, error) {
 	httpClientDetails := ss.ArtDetails.CreateHttpClientDetails()
@@ -46,14 +67,41 @@ func (ss *SecurityService) RegenerateAPIKey() (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", errors.New("API key reneration failed with status: " + resp.Status + "\n" + clientutils.IndentJson(body))
+		return "", errors.New("API key regeneration failed with status: " + resp.Status + "\n" + clientutils.IndentJson(body))
 	}
 
-	var data map[string]interface{} = make(map[string]interface{})
+	return getApiKeyFromBody(body)
+}
+
+// Returns empty string if API Key wasn't generated.
+func (ss *SecurityService) GetAPIKey() (string, error) {
+	httpClientDetails := ss.ArtDetails.CreateHttpClientDetails()
+	reqURL, err := utils.BuildArtifactoryUrl(ss.ArtDetails.GetUrl(), APIKeyPath, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, body, _, err := ss.client.SendGet(reqURL, true, &httpClientDetails)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", errors.New("Artifactory response: " + resp.Status + "\n" + clientutils.IndentJson(body))
+	}
+
+	return getApiKeyFromBody(body)
+}
+
+func getApiKeyFromBody(body []byte) (string, error) {
+	var data = make(map[string]interface{})
 	if err := json.Unmarshal(body, &data); err != nil {
-		return "", fmt.Errorf("Unable to decode json. Error: %w Upstream response: %s", err, string(body))
+		return "", errorutils.CheckError(fmt.Errorf("unable to decode json. Error: %w Upstream response: %s", err, string(body)))
 	}
 
+	if len(data) == 0 {
+		return "", nil
+	}
 	apiKey := data["apiKey"].(string)
 	return apiKey, nil
 }
@@ -93,6 +141,20 @@ func (ss *SecurityService) GetTokens() (GetTokensResponseData, error) {
 		return tokens, errorutils.CheckError(err)
 	}
 	return tokens, err
+}
+
+func (ss *SecurityService) GetUserTokens(username string) ([]string, error) {
+	var tokens []string
+	tokenResponseData, err := ss.GetTokens()
+	if err != nil {
+		return nil, err
+	}
+	for _, token := range tokenResponseData.Tokens {
+		if strings.HasSuffix(token.Subject, "/"+username) {
+			tokens = append(tokens, token.TokenId)
+		}
+	}
+	return tokens, nil
 }
 
 func (ss *SecurityService) RefreshToken(params RefreshTokenParams) (CreateTokenResponseData, error) {
@@ -187,14 +249,16 @@ type CreateTokenResponseData struct {
 }
 
 type GetTokensResponseData struct {
-	Tokens []struct {
-		Issuer      string `json:"issuer,omitempty"`
-		Subject     string `json:"subject,omitempty"`
-		Refreshable bool   `json:"refreshable,omitempty"`
-		Expiry      int    `json:"expiry,omitempty"`
-		TokenId     string `json:"token_id,omitempty"`
-		IssuedAt    int    `json:"issued_at,omitempty"`
-	}
+	Tokens []Token
+}
+
+type Token struct {
+	Issuer      string `json:"issuer,omitempty"`
+	Subject     string `json:"subject,omitempty"`
+	Refreshable bool   `json:"refreshable,omitempty"`
+	Expiry      int    `json:"expiry,omitempty"`
+	TokenId     string `json:"token_id,omitempty"`
+	IssuedAt    int    `json:"issued_at,omitempty"`
 }
 
 type CreateTokenParams struct {

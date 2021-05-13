@@ -14,18 +14,23 @@ import (
 
 type ArtifactoryServicesManager interface {
 	CreateLocalRepository() *services.LocalRepositoryService
+	CreateLocalRepositoryWithParams(params services.LocalRepositoryBaseParams) error
 	CreateRemoteRepository() *services.RemoteRepositoryService
+	CreateRemoteRepositoryWithParams(params services.RemoteRepositoryBaseParams) error
 	CreateVirtualRepository() *services.VirtualRepositoryService
+	CreateVirtualRepositoryWithParams(params services.VirtualRepositoryBaseParams) error
 	UpdateLocalRepository() *services.LocalRepositoryService
 	UpdateRemoteRepository() *services.RemoteRepositoryService
 	UpdateVirtualRepository() *services.VirtualRepositoryService
 	DeleteRepository(repoKey string) error
-	GetRepository(repoKey string) (*services.RepositoryDetails, error)
+	GetRepository(repoKey string, repoDetails interface{}) error
 	GetAllRepositories() (*[]services.RepositoryDetails, error)
+	GetAllRepositoriesFiltered(params services.RepositoriesFilterParams) (*[]services.RepositoryDetails, error)
 	CreatePermissionTarget(params services.PermissionTargetParams) error
 	UpdatePermissionTarget(params services.PermissionTargetParams) error
 	DeletePermissionTarget(permissionTargetName string) error
-	PublishBuildInfo(build *buildinfo.BuildInfo, project string) error
+	GetPermissionTarget(permissionTargetName string) (*services.PermissionTargetParams, error)
+	PublishBuildInfo(build *buildinfo.BuildInfo, projectKey string) (*services.BuildPublishSummary, error)
 	DistributeBuild(params services.BuildDistributionParams) error
 	PromoteBuild(params services.PromotionParams) error
 	DiscardBuilds(params services.DiscardBuildsParams) error
@@ -33,14 +38,14 @@ type ArtifactoryServicesManager interface {
 	GetPathsToDelete(params services.DeleteParams) (*content.ContentReader, error)
 	DeleteFiles(reader *content.ContentReader) (int, error)
 	ReadRemoteFile(readPath string) (io.ReadCloser, error)
-	DownloadFiles(params ...services.DownloadParams) (totalDownloaded, totalExpected int, err error)
-	DownloadFilesWithResultReader(params ...services.DownloadParams) (resultReader *content.ContentReader, totalDownloaded, totalExpected int, err error)
+	DownloadFiles(params ...services.DownloadParams) (totalDownloaded, totalFailed int, err error)
+	DownloadFilesWithSummary(params ...services.DownloadParams) (operationSummary *utils.OperationSummary, err error)
 	GetUnreferencedGitLfsFiles(params services.GitLfsCleanParams) (*content.ContentReader, error)
 	SearchFiles(params services.SearchParams) (*content.ContentReader, error)
 	Aql(aql string) (io.ReadCloser, error)
 	SetProps(params services.PropsParams) (int, error)
 	DeleteProps(params services.PropsParams) (int, error)
-	UploadFilesWithResultReader(params ...services.UploadParams) (resultReader *content.ContentReader, totalUploaded, totalFailed int, err error)
+	UploadFilesWithSummary(params ...services.UploadParams) (operationSummary *utils.OperationSummary, err error)
 	UploadFiles(params ...services.UploadParams) (totalUploaded, totalFailed int, err error)
 	Copy(params ...services.MoveCopyParams) (successCount, failedCount int, err error)
 	Move(params ...services.MoveCopyParams) (successCount, failedCount int, err error)
@@ -48,8 +53,12 @@ type ArtifactoryServicesManager interface {
 	Ping() ([]byte, error)
 	GetConfig() config.Config
 	GetBuildInfo(params services.BuildInfoParams) (*buildinfo.PublishedBuildInfo, bool, error)
+	CreateAPIKey() (string, error)
+	RegenerateAPIKey() (string, error)
+	GetAPIKey() (string, error)
 	CreateToken(params services.CreateTokenParams) (services.CreateTokenResponseData, error)
 	GetTokens() (services.GetTokensResponseData, error)
+	GetUserTokens(username string) ([]string, error)
 	RefreshToken(params services.RefreshTokenParams) (services.CreateTokenResponseData, error)
 	RevokeToken(params services.RevokeTokenParams) (string, error)
 	CreateReplication(params services.CreateReplicationParams) error
@@ -65,6 +74,7 @@ type ArtifactoryServicesManager interface {
 	UpdateGroup(params services.GroupParams) error
 	DeleteGroup(name string) error
 	GetUser(params services.UserParams) (*services.User, error)
+	GetAllUsers() ([]*services.User, error)
 	CreateUser(params services.UserParams) error
 	UpdateUser(params services.UserParams) error
 	DeleteUser(name string) error
@@ -80,11 +90,23 @@ func (esm *EmptyArtifactoryServicesManager) CreateLocalRepository() *services.Lo
 	panic("Failed: Method is not implemented")
 }
 
+func (esm *EmptyArtifactoryServicesManager) CreateLocalRepositoryWithParams(params services.LocalRepositoryBaseParams) error {
+	panic("Failed: Method is not implemented")
+}
+
 func (esm *EmptyArtifactoryServicesManager) CreateRemoteRepository() *services.RemoteRepositoryService {
 	panic("Failed: Method is not implemented")
 }
 
+func (esm *EmptyArtifactoryServicesManager) CreateRemoteRepositoryWithParams(params services.RemoteRepositoryBaseParams) error {
+	panic("Failed: Method is not implemented")
+}
+
 func (esm *EmptyArtifactoryServicesManager) CreateVirtualRepository() *services.VirtualRepositoryService {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) CreateVirtualRepositoryWithParams(params services.VirtualRepositoryBaseParams) error {
 	panic("Failed: Method is not implemented")
 }
 
@@ -104,7 +126,7 @@ func (esm *EmptyArtifactoryServicesManager) DeleteRepository(repoKey string) err
 	panic("Failed: Method is not implemented")
 }
 
-func (esm *EmptyArtifactoryServicesManager) GetRepository(repoKey string) (*services.RepositoryDetails, error) {
+func (esm *EmptyArtifactoryServicesManager) GetRepository(repoKey string, repoDetails interface{}) error {
 	panic("Failed: Method is not implemented")
 }
 
@@ -120,7 +142,11 @@ func (esm *EmptyArtifactoryServicesManager) DeletePermissionTarget(permissionTar
 	panic("Failed: Method is not implemented")
 }
 
-func (esm *EmptyArtifactoryServicesManager) PublishBuildInfo(build *buildinfo.BuildInfo, project string) error {
+func (esm *EmptyArtifactoryServicesManager) GetPermissionTarget(permissionTargetName string) (*services.PermissionTargetParams, error) {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) PublishBuildInfo(build *buildinfo.BuildInfo, project string) (*services.BuildPublishSummary, error) {
 	panic("Failed: Method is not implemented")
 }
 
@@ -156,11 +182,11 @@ func (esm *EmptyArtifactoryServicesManager) initDownloadService() *services.Down
 	panic("Failed: Method is not implemented")
 }
 
-func (esm *EmptyArtifactoryServicesManager) DownloadFiles(params ...services.DownloadParams) (totalDownloaded, totalExpected int, err error) {
+func (esm *EmptyArtifactoryServicesManager) DownloadFiles(params ...services.DownloadParams) (totalDownloaded, totalFailed int, err error) {
 	panic("Failed: Method is not implemented")
 }
 
-func (esm *EmptyArtifactoryServicesManager) DownloadFilesWithResultReader(params ...services.DownloadParams) (resultReader *content.ContentReader, totalDownloaded, totalExpected int, err error) {
+func (esm *EmptyArtifactoryServicesManager) DownloadFilesWithSummary(params ...services.DownloadParams) (operationSummary *utils.OperationSummary, err error) {
 	panic("Failed: Method is not implemented")
 }
 
@@ -188,7 +214,7 @@ func (esm *EmptyArtifactoryServicesManager) UploadFiles(params ...services.Uploa
 	panic("Failed: Method is not implemented")
 }
 
-func (esm *EmptyArtifactoryServicesManager) UploadFilesWithResultReader(params ...services.UploadParams) (resultReader *content.ContentReader, totalUploaded, totalFailed int, err error) {
+func (esm *EmptyArtifactoryServicesManager) UploadFilesWithSummary(params ...services.UploadParams) (operationSummary *utils.OperationSummary, err error) {
 	panic("Failed: Method is not implemented")
 }
 
@@ -216,11 +242,27 @@ func (esm *EmptyArtifactoryServicesManager) GetBuildInfo(params services.BuildIn
 	panic("Failed: Method is not implemented")
 }
 
+func (esm *EmptyArtifactoryServicesManager) CreateAPIKey() (string, error) {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) RegenerateAPIKey() (string, error) {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) GetAPIKey() (string, error) {
+	panic("Failed: Method is not implemented")
+}
+
 func (esm *EmptyArtifactoryServicesManager) CreateToken(params services.CreateTokenParams) (services.CreateTokenResponseData, error) {
 	panic("Failed: Method is not implemented")
 }
 
 func (esm *EmptyArtifactoryServicesManager) GetTokens() (services.GetTokensResponseData, error) {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) GetUserTokens(username string) ([]string, error) {
 	panic("Failed: Method is not implemented")
 }
 
@@ -267,7 +309,16 @@ func (esm *EmptyArtifactoryServicesManager) Client() *jfroghttpclient.JfrogHttpC
 func (esm *EmptyArtifactoryServicesManager) GetAllRepositories() (*[]services.RepositoryDetails, error) {
 	panic("Failed: Method is not implemented")
 }
+
+func (esm *EmptyArtifactoryServicesManager) GetAllRepositoriesFiltered(params services.RepositoriesFilterParams) (*[]services.RepositoryDetails, error) {
+	panic("Failed: Method is not implemented")
+}
+
 func (esm *EmptyArtifactoryServicesManager) GetUser(params services.UserParams) (*services.User, error) {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) GetAllUsers() ([]*services.User, error) {
 	panic("Failed: Method is not implemented")
 }
 

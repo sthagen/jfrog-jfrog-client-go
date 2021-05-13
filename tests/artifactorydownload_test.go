@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"github.com/stretchr/testify/assert"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 )
 
 func TestArtifactoryDownload(t *testing.T) {
+	initArtifactoryTest(t)
 	uploadDummyFile(t)
 	t.Run("flat", flatDownload)
 	t.Run("recursive", recursiveDownload)
@@ -20,6 +22,8 @@ func TestArtifactoryDownload(t *testing.T) {
 	t.Run("excludePatterns", excludePatternsDownload)
 	t.Run("exclusions", exclusionsDownload)
 	t.Run("explodeArchive", explodeArchiveDownload)
+	t.Run("summary", summaryDownload)
+	t.Run("duplicate", duplicateDownload)
 	artifactoryCleanup(t)
 }
 
@@ -33,7 +37,7 @@ func flatDownload(t *testing.T) {
 	downloadPattern := RtTargetRepo + "*"
 	downloadTarget := workingDir + string(filepath.Separator)
 	// Download all from TargetRepo with flat = true
-	_, _, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
+	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
 	if err != nil {
 		t.Error(err)
 	}
@@ -54,7 +58,7 @@ func flatDownload(t *testing.T) {
 	}
 	defer os.RemoveAll(workingDir2)
 	// Download all from TargetRepo with flat = false
-	_, _, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: false})
+	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: false})
 	if err != nil {
 		t.Error(err)
 	}
@@ -79,7 +83,7 @@ func recursiveDownload(t *testing.T) {
 	defer os.RemoveAll(workingDir)
 	downloadPattern := RtTargetRepo + "*"
 	downloadTarget := workingDir + string(filepath.Separator)
-	_, _, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
+	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
 	if err != nil {
 		t.Error(err)
 	}
@@ -100,7 +104,7 @@ func recursiveDownload(t *testing.T) {
 	}
 	defer os.RemoveAll(workingDir2)
 	downloadTarget = workingDir2 + string(filepath.Separator)
-	_, _, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: false, Target: downloadTarget}, Flat: true})
+	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: false, Target: downloadTarget}, Flat: true})
 	if err != nil {
 		t.Error(err)
 	}
@@ -126,7 +130,7 @@ func placeholderDownload(t *testing.T) {
 	defer os.RemoveAll(workingDir)
 	downloadPattern := RtTargetRepo + "(*).in"
 	downloadTarget := workingDir + string(filepath.Separator) + "{1}" + string(filepath.Separator)
-	_, _, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
+	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
 	if err != nil {
 		t.Error(err)
 	}
@@ -148,7 +152,7 @@ func includeDirsDownload(t *testing.T) {
 	defer os.RemoveAll(workingDir)
 	downloadPattern := RtTargetRepo + "*"
 	downloadTarget := workingDir + string(filepath.Separator)
-	_, _, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, IncludeDirs: true, Recursive: false, Target: downloadTarget}, Flat: false})
+	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, IncludeDirs: true, Recursive: false, Target: downloadTarget}, Flat: false})
 	if err != nil {
 		t.Error(err)
 	}
@@ -173,7 +177,7 @@ func excludePatternsDownload(t *testing.T) {
 	downloadPattern := RtTargetRepo + "*"
 	downloadTarget := workingDir + string(filepath.Separator)
 	excludePatterns := []string{"b.in", "*.tar.gz"}
-	_, _, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget, ExcludePatterns: excludePatterns}, Flat: true})
+	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget, ExcludePatterns: excludePatterns}, Flat: true})
 	if err != nil {
 		t.Error(err)
 	}
@@ -198,7 +202,7 @@ func exclusionsDownload(t *testing.T) {
 	downloadPattern := RtTargetRepo + "*"
 	downloadTarget := workingDir + string(filepath.Separator)
 	exclusions := []string{"*b.in", "*.tar.gz"}
-	_, _, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget, Exclusions: exclusions}, Flat: true})
+	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget, Exclusions: exclusions}, Flat: true})
 	if err != nil {
 		t.Error(err)
 	}
@@ -224,7 +228,7 @@ func explodeArchiveDownload(t *testing.T) {
 	downloadTarget := workingDir + string(filepath.Separator)
 	downloadParams := services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true, Explode: false}
 	// First we'll download c.tar.gz without extracting it (explode = false by default).
-	_, _, err = testsDownloadService.DownloadFiles(downloadParams)
+	_, err = testsDownloadService.DownloadFiles(downloadParams)
 	if err != nil {
 		t.Error(err)
 	}
@@ -254,7 +258,7 @@ func explodeArchiveDownload(t *testing.T) {
 }
 
 func explodeDownloadAndVerify(t *testing.T, downloadParams *services.DownloadParams, workingDir string) {
-	_, _, err := testsDownloadService.DownloadFiles(*downloadParams)
+	_, err := testsDownloadService.DownloadFiles(*downloadParams)
 	if err != nil {
 		t.Error(err)
 	}
@@ -263,5 +267,74 @@ func explodeDownloadAndVerify(t *testing.T, downloadParams *services.DownloadPar
 	}
 	if !fileutils.IsPathExists(filepath.Join(workingDir, "a.in"), false) {
 		t.Error("Missing file a.in")
+	}
+}
+
+func summaryDownload(t *testing.T) {
+	workingDir, err := ioutil.TempDir("", "downloadTests")
+	if err != nil {
+		t.Error(err)
+	}
+	defer os.RemoveAll(workingDir)
+	testsDownloadService.SetSaveSummary(true)
+	defer testsDownloadService.SetSaveSummary(false)
+	downloadPattern := RtTargetRepo + "*.tar.gz"
+	downloadTarget := workingDir + string(filepath.Separator)
+	summary, err := testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
+	if err != nil {
+		t.Error(err)
+	}
+	defer summary.Close()
+	if summary.TotalSucceeded != 1 {
+		t.Error("Expected to download 1 files.")
+	}
+	if summary.TotalFailed != 0 {
+		t.Error("Failed to download", summary.TotalFailed, "files.")
+	}
+	var transfers []utils.FileTransferDetails
+	for item := new(utils.FileTransferDetails); summary.TransferDetailsReader.NextRecord(item) == nil; item = new(utils.FileTransferDetails) {
+		transfers = append(transfers, *item)
+	}
+	assert.Len(t, transfers, 1)
+	assert.Equal(t, testsUploadService.ArtDetails.GetUrl()+RtTargetRepo+"c.tar.gz", transfers[0].SourcePath)
+	assert.Equal(t, filepath.Join(workingDir, "c.tar.gz"), transfers[0].TargetPath)
+	var artifacts []utils.ArtifactDetails
+	for item := new(utils.ArtifactDetails); summary.ArtifactsDetailsReader.NextRecord(item) == nil; item = new(utils.ArtifactDetails) {
+		artifacts = append(artifacts, *item)
+	}
+	assert.Len(t, artifacts, 1)
+	assert.Equal(t, RtTargetRepo+"c.tar.gz", artifacts[0].ArtifactoryPath)
+}
+
+// Test downloading of two different files to the same path in the local machine. Only the first of them will be downloaded.
+func duplicateDownload(t *testing.T) {
+	workingDir, err := ioutil.TempDir("", "downloadTests")
+	if err != nil {
+		t.Error(err)
+	}
+	defer os.RemoveAll(workingDir)
+	downloadPattern := RtTargetRepo + "*.in"
+	downloadTarget := workingDir + string(filepath.Separator)
+	summary, err := testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
+	if err != nil {
+		t.Error(err)
+	}
+	if summary.TotalSucceeded != 2 {
+		t.Error("Expected to download 2 files.")
+	}
+	if summary.TotalFailed != 0 {
+		t.Error("Failed to download", summary.TotalFailed, "files.")
+	}
+	downloadTarget2 := workingDir + string(filepath.Separator) + "file"
+	summary2, err := testsDownloadService.DownloadFiles(services.DownloadParams{ArtifactoryCommonParams: &utils.ArtifactoryCommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget2}, Flat: true})
+	if err != nil {
+		t.Error(err)
+	}
+	// Two files match the pattern, but both are planned to be downloaded to the same path, so only one of them is downloaded
+	if summary2.TotalSucceeded != 1 {
+		t.Error("Expected to download 1 files.")
+	}
+	if summary2.TotalFailed != 0 {
+		t.Error("Failed to download", summary2.TotalFailed, "files.")
 	}
 }

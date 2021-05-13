@@ -13,6 +13,10 @@ import (
 	"testing"
 	"time"
 
+	pipelinesAuth "github.com/jfrog/jfrog-client-go/pipelines/auth"
+	pipelinesServices "github.com/jfrog/jfrog-client-go/pipelines/services"
+
+	"github.com/jfrog/jfrog-client-go/artifactory/buildinfo"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils/tests"
 
 	artifactoryAuth "github.com/jfrog/jfrog-client-go/artifactory/auth"
@@ -32,16 +36,24 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var TestArtifactory *bool
+var TestDistribution *bool
+var TestXray *bool
+var TestPipelines *bool
 var RtUrl *string
 var DistUrl *string
 var XrayUrl *string
+var PipelinesUrl *string
 var RtUser *string
 var RtPassword *string
 var RtApiKey *string
 var RtSshKeyPath *string
 var RtSshPassphrase *string
 var RtAccessToken *string
-var LogLevel *string
+var PipelinesAccessToken *string
+var PipelinesVcsToken *string
+var PipelinesVcsRepoFullPath *string
+var PipelinesVcsBranch *string
 
 // Artifactory services
 var testsUploadService *services.UploadService
@@ -56,7 +68,7 @@ var testsUpdateLocalRepositoryService *services.LocalRepositoryService
 var testsUpdateRemoteRepositoryService *services.RemoteRepositoryService
 var testsUpdateVirtualRepositoryService *services.VirtualRepositoryService
 var testsDeleteRepositoryService *services.DeleteRepositoryService
-var testsGetRepositoryService *services.GetRepositoryService
+var testsRepositoriesService *services.RepositoriesService
 var testsCreateReplicationService *services.CreateReplicationService
 var testsUpdateReplicationService *services.UpdateReplicationService
 var testsReplicationGetService *services.GetReplicationService
@@ -64,6 +76,7 @@ var testsReplicationDeleteService *services.DeleteReplicationService
 var testsPermissionTargetService *services.PermissionTargetService
 var testUserService *services.UserService
 var testGroupService *services.GroupService
+var testBuildInfoService *services.BuildInfoService
 
 // Distribution services
 var testsBundleSetSigningKeyService *distributionServices.SetSigningKeyService
@@ -76,8 +89,13 @@ var testsBundleDeleteLocalService *distributionServices.DeleteLocalReleaseBundle
 var testsBundleDeleteRemoteService *distributionServices.DeleteReleaseBundleService
 
 // Xray Services
-var testsXrayVersionService *xrayServices.VersionService
 var testsXrayWatchService *xrayServices.WatchService
+var testsXrayPolicyService *xrayServices.PolicyService
+var testXrayBinMgrService *xrayServices.BinMgrService
+
+// Pipelines Services
+var testsPipelinesIntegrationsService *pipelinesServices.IntegrationsService
+var testsPipelinesSourcesService *pipelinesServices.SourcesService
 
 var timestamp = time.Now().Unix()
 var trueValue = true
@@ -92,21 +110,29 @@ const (
 )
 
 func init() {
-	RtUrl = flag.String("rt.url", "http://localhost:8081/artifactory/", "Artifactory url")
-	DistUrl = flag.String("rt.distUrl", "", "Distribution url")
-	XrayUrl = flag.String("rt.xrayUrl", "", "Xray url")
-	RtUser = flag.String("rt.user", "admin", "Artifactory username")
-	RtPassword = flag.String("rt.password", "password", "Artifactory password")
+	TestArtifactory = flag.Bool("test.artifactory", false, "Test Artifactory")
+	TestDistribution = flag.Bool("test.distribution", false, "Test distribution")
+	TestXray = flag.Bool("test.xray", false, "Test xray")
+	TestPipelines = flag.Bool("test.pipelines", false, "Test pipelines")
+	RtUrl = flag.String("rt.url", "", "Artifactory url")
+	DistUrl = flag.String("ds.url", "", "Distribution url")
+	XrayUrl = flag.String("xr.url", "", "Xray url")
+	PipelinesUrl = flag.String("pipe.url", "", "Pipelines url")
+	RtUser = flag.String("rt.user", "", "Artifactory username")
+	RtPassword = flag.String("rt.password", "", "Artifactory password")
 	RtApiKey = flag.String("rt.apikey", "", "Artifactory user API key")
 	RtSshKeyPath = flag.String("rt.sshKeyPath", "", "Ssh key file path")
 	RtSshPassphrase = flag.String("rt.sshPassphrase", "", "Ssh key passphrase")
 	RtAccessToken = flag.String("rt.accessToken", "", "Artifactory access token")
-	LogLevel = flag.String("log-level", "INFO", "Sets the log level")
+	PipelinesAccessToken = flag.String("pipe.accessToken", "", "Pipelines access token")
+	PipelinesVcsToken = flag.String("pipe.vcsToken", "", "Vcs token for Pipelines tests")
+	PipelinesVcsRepoFullPath = flag.String("pipe.vcsRepo", "", "Vcs full repo path for Pipelines tests")
+	PipelinesVcsBranch = flag.String("pipe.vcsBranch", "", "Vcs branch for Pipelines tests")
 }
 
 func createArtifactorySecurityManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsSecurityService = services.NewSecurityService(client)
 	testsSecurityService.ArtDetails = artDetails
@@ -114,24 +140,22 @@ func createArtifactorySecurityManager() {
 
 func createArtifactorySearchManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
-	testsSearchService = services.NewSearchService(client)
-	testsSearchService.ArtDetails = artDetails
+	testsSearchService = services.NewSearchService(artDetails, client)
 }
 
 func createArtifactoryDeleteManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
-	testsDeleteService = services.NewDeleteService(client)
+	testsDeleteService = services.NewDeleteService(artDetails, client)
 	testsDeleteService.SetThreads(3)
-	testsDeleteService.ArtDetails = artDetails
 }
 
 func createArtifactoryUploadManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsUploadService = services.NewUploadService(client)
 	testsUploadService.ArtDetails = artDetails
@@ -140,7 +164,7 @@ func createArtifactoryUploadManager() {
 
 func createArtifactoryUserManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testUserService = services.NewUserService(client)
 	testUserService.ArtDetails = artDetails
@@ -148,25 +172,36 @@ func createArtifactoryUserManager() {
 
 func createArtifactoryGroupManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testGroupService = services.NewGroupService(client)
 	testGroupService.ArtDetails = artDetails
 }
+
+func createArtifactoryBuildInfoManager() {
+	artDetails := GetRtDetails()
+	client, err := createJfrogHttpClient(&artDetails)
+	failOnHttpClientCreation(err)
+	testBuildInfoService = services.NewBuildInfoService(artDetails, client)
+}
+
 func createArtifactoryDownloadManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
-	testsDownloadService = services.NewDownloadService(client)
-	testsDownloadService.ArtDetails = artDetails
+	testsDownloadService = services.NewDownloadService(artDetails, client)
 	testsDownloadService.SetThreads(3)
 }
 
 func createDistributionManager() {
 	distDetails := GetDistDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&distDetails).Build()
+	client, err := jfroghttpclient.JfrogClientBuilder().
+		SetClientCertPath(distDetails.GetClientCertPath()).
+		SetClientCertKeyPath(distDetails.GetClientCertKeyPath()).
+		AppendPreRequestInterceptor(distDetails.RunPreRequestFunctions).
+		Build()
 	failOnHttpClientCreation(err)
-	testsBundleCreateService = distributionServices.NewCreateReleseBundleService(client)
+	testsBundleCreateService = distributionServices.NewCreateReleaseBundleService(client)
 	testsBundleUpdateService = distributionServices.NewUpdateReleaseBundleService(client)
 	testsBundleSignService = distributionServices.NewSignBundleService(client)
 	testsBundleDistributeService = distributionServices.NewDistributeReleaseBundleService(client)
@@ -184,17 +219,9 @@ func createDistributionManager() {
 	testsBundleDeleteRemoteService.DistDetails = distDetails
 }
 
-func createXrayVersionManager() {
-	xrayDetails := GetXrayDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&xrayDetails).Build()
-	failOnHttpClientCreation(err)
-	testsXrayVersionService = xrayServices.NewVersionService(client)
-	testsXrayVersionService.XrayDetails = xrayDetails
-}
-
 func createArtifactoryCreateLocalRepositoryManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsCreateLocalRepositoryService = services.NewLocalRepositoryService(client, false)
 	testsCreateLocalRepositoryService.ArtDetails = artDetails
@@ -202,7 +229,7 @@ func createArtifactoryCreateLocalRepositoryManager() {
 
 func createArtifactoryUpdateLocalRepositoryManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsUpdateLocalRepositoryService = services.NewLocalRepositoryService(client, true)
 	testsUpdateLocalRepositoryService.ArtDetails = artDetails
@@ -210,7 +237,7 @@ func createArtifactoryUpdateLocalRepositoryManager() {
 
 func createArtifactoryCreateRemoteRepositoryManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsCreateRemoteRepositoryService = services.NewRemoteRepositoryService(client, false)
 	testsCreateRemoteRepositoryService.ArtDetails = artDetails
@@ -218,7 +245,7 @@ func createArtifactoryCreateRemoteRepositoryManager() {
 
 func createArtifactoryUpdateRemoteRepositoryManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsUpdateRemoteRepositoryService = services.NewRemoteRepositoryService(client, true)
 	testsUpdateRemoteRepositoryService.ArtDetails = artDetails
@@ -226,7 +253,7 @@ func createArtifactoryUpdateRemoteRepositoryManager() {
 
 func createArtifactoryCreateVirtualRepositoryManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsCreateVirtualRepositoryService = services.NewVirtualRepositoryService(client, false)
 	testsCreateVirtualRepositoryService.ArtDetails = artDetails
@@ -234,7 +261,7 @@ func createArtifactoryCreateVirtualRepositoryManager() {
 
 func createArtifactoryUpdateVirtualRepositoryManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsUpdateVirtualRepositoryService = services.NewVirtualRepositoryService(client, true)
 	testsUpdateVirtualRepositoryService.ArtDetails = artDetails
@@ -242,7 +269,7 @@ func createArtifactoryUpdateVirtualRepositoryManager() {
 
 func createArtifactoryDeleteRepositoryManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsDeleteRepositoryService = services.NewDeleteRepositoryService(client)
 	testsDeleteRepositoryService.ArtDetails = artDetails
@@ -250,15 +277,15 @@ func createArtifactoryDeleteRepositoryManager() {
 
 func createArtifactoryGetRepositoryManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
-	testsGetRepositoryService = services.NewGetRepositoryService(client)
-	testsGetRepositoryService.ArtDetails = artDetails
+	testsRepositoriesService = services.NewRepositoriesService(client)
+	testsRepositoriesService.ArtDetails = artDetails
 }
 
 func createArtifactoryReplicationCreateManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsCreateReplicationService = services.NewCreateReplicationService(client)
 	testsCreateReplicationService.ArtDetails = artDetails
@@ -266,7 +293,7 @@ func createArtifactoryReplicationCreateManager() {
 
 func createArtifactoryReplicationUpdateManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsUpdateReplicationService = services.NewUpdateReplicationService(client)
 	testsUpdateReplicationService.ArtDetails = artDetails
@@ -274,7 +301,7 @@ func createArtifactoryReplicationUpdateManager() {
 
 func createArtifactoryReplicationGetManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsReplicationGetService = services.NewGetReplicationService(client)
 	testsReplicationGetService.ArtDetails = artDetails
@@ -282,7 +309,7 @@ func createArtifactoryReplicationGetManager() {
 
 func createArtifactoryReplicationDeleteManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsReplicationDeleteService = services.NewDeleteReplicationService(client)
 	testsReplicationDeleteService.ArtDetails = artDetails
@@ -290,18 +317,78 @@ func createArtifactoryReplicationDeleteManager() {
 
 func createArtifactoryPermissionTargetManager() {
 	artDetails := GetRtDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&artDetails).Build()
+	client, err := createJfrogHttpClient(&artDetails)
 	failOnHttpClientCreation(err)
 	testsPermissionTargetService = services.NewPermissionTargetService(client)
 	testsPermissionTargetService.ArtDetails = artDetails
 }
 
+func createJfrogHttpClient(artDetails *auth.ServiceDetails) (*jfroghttpclient.JfrogHttpClient, error) {
+	return jfroghttpclient.JfrogClientBuilder().
+		SetClientCertPath((*artDetails).GetClientCertPath()).
+		SetClientCertKeyPath((*artDetails).GetClientCertKeyPath()).
+		AppendPreRequestInterceptor((*artDetails).RunPreRequestFunctions).
+		Build()
+}
+
 func createXrayWatchManager() {
-	XrayDetails := GetXrayDetails()
-	client, err := jfroghttpclient.JfrogClientBuilder().SetServiceDetails(&XrayDetails).Build()
+	xrayDetails := GetXrayDetails()
+	client, err := jfroghttpclient.JfrogClientBuilder().
+		SetClientCertPath(xrayDetails.GetClientCertPath()).
+		SetClientCertKeyPath(xrayDetails.GetClientCertKeyPath()).
+		AppendPreRequestInterceptor(xrayDetails.RunPreRequestFunctions).
+		Build()
 	failOnHttpClientCreation(err)
 	testsXrayWatchService = xrayServices.NewWatchService(client)
-	testsXrayWatchService.XrayDetails = XrayDetails
+	testsXrayWatchService.XrayDetails = xrayDetails
+}
+
+func createXrayPolicyManager() {
+	xrayDetails := GetXrayDetails()
+	client, err := jfroghttpclient.JfrogClientBuilder().
+		SetClientCertPath(xrayDetails.GetClientCertPath()).
+		SetClientCertKeyPath(xrayDetails.GetClientCertKeyPath()).
+		AppendPreRequestInterceptor(xrayDetails.RunPreRequestFunctions).
+		Build()
+	failOnHttpClientCreation(err)
+	testsXrayPolicyService = xrayServices.NewPolicyService(client)
+	testsXrayPolicyService.XrayDetails = xrayDetails
+}
+
+func createXrayBinMgrManager() {
+	xrayDetails := GetXrayDetails()
+	client, err := jfroghttpclient.JfrogClientBuilder().
+		SetClientCertPath(xrayDetails.GetClientCertPath()).
+		SetClientCertKeyPath(xrayDetails.GetClientCertKeyPath()).
+		AppendPreRequestInterceptor(xrayDetails.RunPreRequestFunctions).
+		Build()
+	failOnHttpClientCreation(err)
+	testXrayBinMgrService = xrayServices.NewBinMgrService(client)
+	testXrayBinMgrService.XrayDetails = xrayDetails
+}
+
+func createPipelinesIntegrationsManager() {
+	pipelinesDetails := GetPipelinesDetails()
+	client, err := jfroghttpclient.JfrogClientBuilder().
+		SetClientCertPath(pipelinesDetails.GetClientCertPath()).
+		SetClientCertKeyPath(pipelinesDetails.GetClientCertKeyPath()).
+		AppendPreRequestInterceptor(pipelinesDetails.RunPreRequestFunctions).
+		Build()
+	failOnHttpClientCreation(err)
+	testsPipelinesIntegrationsService = pipelinesServices.NewIntegrationsService(client)
+	testsPipelinesIntegrationsService.ServiceDetails = pipelinesDetails
+}
+
+func createPipelinesSourcesManager() {
+	pipelinesDetails := GetPipelinesDetails()
+	client, err := jfroghttpclient.JfrogClientBuilder().
+		SetClientCertPath(pipelinesDetails.GetClientCertPath()).
+		SetClientCertKeyPath(pipelinesDetails.GetClientCertKeyPath()).
+		AppendPreRequestInterceptor(pipelinesDetails.RunPreRequestFunctions).
+		Build()
+	failOnHttpClientCreation(err)
+	testsPipelinesSourcesService = pipelinesServices.NewSourcesService(client)
+	testsPipelinesSourcesService.ServiceDetails = pipelinesDetails
 }
 
 func failOnHttpClientCreation(err error) {
@@ -330,6 +417,13 @@ func GetXrayDetails() auth.ServiceDetails {
 	xrayDetails.SetUrl(clientutils.AddTrailingSlashIfNeeded(*XrayUrl))
 	setAuthenticationDetail(xrayDetails)
 	return xrayDetails
+}
+
+func GetPipelinesDetails() auth.ServiceDetails {
+	pDetails := pipelinesAuth.NewPipelinesDetails()
+	pDetails.SetUrl(clientutils.AddTrailingSlashIfNeeded(*PipelinesUrl))
+	pDetails.SetAccessToken(*PipelinesAccessToken)
+	return pDetails
 }
 
 func setAuthenticationDetail(details auth.ServiceDetails) {
@@ -363,24 +457,24 @@ func uploadDummyFile(t *testing.T) {
 	up := services.NewUploadParams()
 	up.ArtifactoryCommonParams = &utils.ArtifactoryCommonParams{Pattern: pattern, Recursive: true, Target: RtTargetRepo + "test/"}
 	up.Flat = true
-	uploaded, failed, err := testsUploadService.UploadFiles(up)
-	if uploaded != 1 {
+	summary, err := testsUploadService.UploadFiles(up)
+	if summary.TotalSucceeded != 1 {
 		t.Error("Expected to upload 1 file.")
 	}
-	if failed != 0 {
-		t.Error("Failed to upload", failed, "files.")
+	if summary.TotalFailed != 0 {
+		t.Error("Failed to upload", summary.TotalFailed, "files.")
 	}
 	if err != nil {
 		t.Error(err)
 	}
 	up.ArtifactoryCommonParams = &utils.ArtifactoryCommonParams{Pattern: pattern, Recursive: true, Target: RtTargetRepo + "b.in"}
 	up.Flat = true
-	uploaded, failed, err = testsUploadService.UploadFiles(up)
-	if uploaded != 1 {
+	summary, err = testsUploadService.UploadFiles(up)
+	if summary.TotalSucceeded != 1 {
 		t.Error("Expected to upload 1 file.")
 	}
-	if failed != 0 {
-		t.Error("Failed to upload", failed, "files.")
+	if summary.TotalFailed != 0 {
+		t.Error("Failed to upload", summary.TotalFailed, "files.")
 	}
 	archivePath := filepath.Join(workingDir, "c.tar.gz")
 	err = archiver.Archive([]string{filepath.Join(workingDir, "out/a.in")}, archivePath)
@@ -389,12 +483,12 @@ func uploadDummyFile(t *testing.T) {
 	}
 	up.ArtifactoryCommonParams = &utils.ArtifactoryCommonParams{Pattern: archivePath, Recursive: true, Target: RtTargetRepo}
 	up.Flat = true
-	uploaded, failed, err = testsUploadService.UploadFiles(up)
-	if uploaded != 1 {
+	summary, err = testsUploadService.UploadFiles(up)
+	if summary.TotalSucceeded != 1 {
 		t.Error("Expected to upload 1 file.")
 	}
-	if failed != 0 {
-		t.Error("Failed to upload", failed, "files.")
+	if summary.TotalFailed != 0 {
+		t.Error("Failed to upload", summary.TotalFailed, "files.")
 	}
 	if err != nil {
 		t.Error(err)
@@ -426,6 +520,9 @@ func artifactoryCleanup(t *testing.T) {
 }
 
 func createReposIfNeeded() error {
+	if !(*TestArtifactory || *TestDistribution || *TestXray) {
+		return nil
+	}
 	var err error
 	var repoConfig string
 	repo := RtTargetRepo
@@ -561,13 +658,142 @@ func GenerateRepoKeyForRepoServiceTest() string {
 }
 
 func getRepo(t *testing.T, repoKey string) *services.RepositoryDetails {
-	data, err := testsGetRepositoryService.Get(repoKey)
+	data := services.RepositoryDetails{}
+	err := testsRepositoriesService.Get(repoKey, &data)
 	assert.NoError(t, err, "Failed to get "+repoKey+" details")
+	return &data
+}
+
+func getAllRepos(t *testing.T, repoType, packageType string) *[]services.RepositoryDetails {
+	params := services.NewRepositoriesFilterParams()
+	params.RepoType = repoType
+	params.PackageType = packageType
+	data, err := testsRepositoriesService.GetWithFilter(params)
+	assert.NoError(t, err, "Failed to get all repositories details")
 	return data
 }
 
-func getAllRepos(t *testing.T) *[]services.RepositoryDetails {
-	data, err := testsGetRepositoryService.GetAll()
-	assert.NoError(t, err, "Failed to get all repositories details")
-	return data
+func createDummyBuild(buildName string) error {
+	dataArtifactoryBuild := &buildinfo.BuildInfo{
+		Name:    buildName,
+		Number:  "1.0.0",
+		Started: "2014-09-30T12:00:19.893+0300",
+		Modules: []buildinfo.Module{{
+			Id: "example-module",
+			Artifacts: []buildinfo.Artifact{
+				{
+					Type: "gz",
+					Name: "c.tar.gz",
+					Checksum: &buildinfo.Checksum{
+						Sha1: "9d4336ff7bc2d2348aee4e27ad55e42110df4a80",
+						Md5:  "b4918187cc9b3bf1b0772546d9398d7d",
+					},
+				},
+			},
+		}},
+	}
+	_, err := testBuildInfoService.PublishBuildInfo(dataArtifactoryBuild, "")
+	return err
+}
+
+func deleteBuild(buildName string) error {
+	err := deleteBuildIndex(buildName)
+	if err != nil {
+		return err
+	}
+
+	artDetails := GetRtDetails()
+	artHTTPDetails := artDetails.CreateHttpClientDetails()
+	client, err := httpclient.ClientBuilder().Build()
+	if err != nil {
+		return err
+	}
+
+	resp, _, err := client.SendDelete(artDetails.GetUrl()+"api/build/"+buildName+"?deleteAll=1", nil, artHTTPDetails)
+
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("failed to delete build " + resp.Status)
+	}
+
+	return nil
+}
+
+func getIndexedBuilds() ([]string, error) {
+	xrayDetails := GetXrayDetails()
+	artHTTPDetails := xrayDetails.CreateHttpClientDetails()
+	utils.SetContentType("application/json", &artHTTPDetails.Headers)
+	client, err := httpclient.ClientBuilder().Build()
+	if err != nil {
+		return []string{}, err
+	}
+
+	resp, body, _, err := client.SendGet(xrayDetails.GetUrl()+"api/v1/binMgr/default/builds", true, artHTTPDetails)
+	if err != nil {
+		return []string{}, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return []string{}, errors.New("failed to get build index " + resp.Status)
+	}
+
+	response := &indexedBuildsPayload{}
+	err = json.Unmarshal(body, response)
+	if err != nil {
+		return []string{}, err
+	}
+
+	return response.IndexedBuilds, nil
+}
+
+func deleteBuildIndex(buildName string) error {
+	// Prepare new indexed builds list
+	indexedBuilds, err := getIndexedBuilds()
+	if err != nil {
+		return err
+	}
+	buildIndex := indexOf(buildName, indexedBuilds)
+	if buildIndex == -1 {
+		// Build indexing does not exist
+		return nil
+	}
+	indexedBuilds = append(indexedBuilds[:buildIndex], indexedBuilds[buildIndex+1:]...)
+
+	// Delete build index
+	xrayDetails := GetXrayDetails()
+	artHTTPDetails := xrayDetails.CreateHttpClientDetails()
+	utils.SetContentType("application/json", &artHTTPDetails.Headers)
+	client, err := httpclient.ClientBuilder().Build()
+	if err != nil {
+		return err
+	}
+
+	dataIndexBuild := indexedBuildsPayload{IndexedBuilds: indexedBuilds}
+	requestContentIndexBuild, err := json.Marshal(dataIndexBuild)
+
+	resp, _, err := client.SendPut(xrayDetails.GetUrl()+"api/v1/binMgr/default/builds", requestContentIndexBuild, artHTTPDetails)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("failed to delete build index " + resp.Status)
+	}
+
+	return nil
+}
+
+func indexOf(element string, data []string) int {
+	for k, v := range data {
+		if element == v {
+			return k
+		}
+	}
+	return -1
+}
+
+type indexedBuildsPayload struct {
+	BinMgrId         string   `json:"bin_mgr_id,omitempty"`
+	IndexedBuilds    []string `json:"indexed_builds"`
+	NonIndexedBuilds []string `json:"non_indexed_builds,omitempty"`
 }
