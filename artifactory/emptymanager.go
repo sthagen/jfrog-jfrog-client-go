@@ -9,6 +9,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/config"
 	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 )
 
@@ -30,7 +31,7 @@ type ArtifactoryServicesManager interface {
 	UpdatePermissionTarget(params services.PermissionTargetParams) error
 	DeletePermissionTarget(permissionTargetName string) error
 	GetPermissionTarget(permissionTargetName string) (*services.PermissionTargetParams, error)
-	PublishBuildInfo(build *buildinfo.BuildInfo, projectKey string) (*services.BuildPublishSummary, error)
+	PublishBuildInfo(build *buildinfo.BuildInfo, projectKey string) (*clientutils.Sha256Summary, error)
 	DistributeBuild(params services.BuildDistributionParams) error
 	PromoteBuild(params services.PromotionParams) error
 	DiscardBuilds(params services.DiscardBuildsParams) error
@@ -49,7 +50,7 @@ type ArtifactoryServicesManager interface {
 	UploadFiles(params ...services.UploadParams) (totalUploaded, totalFailed int, err error)
 	Copy(params ...services.MoveCopyParams) (successCount, failedCount int, err error)
 	Move(params ...services.MoveCopyParams) (successCount, failedCount int, err error)
-	PublishGoProject(params _go.GoParams) error
+	PublishGoProject(params _go.GoParams) (*utils.OperationSummary, error)
 	Ping() ([]byte, error)
 	GetConfig() config.Config
 	GetBuildInfo(params services.BuildInfoParams) (*buildinfo.PublishedBuildInfo, bool, error)
@@ -146,7 +147,7 @@ func (esm *EmptyArtifactoryServicesManager) GetPermissionTarget(permissionTarget
 	panic("Failed: Method is not implemented")
 }
 
-func (esm *EmptyArtifactoryServicesManager) PublishBuildInfo(build *buildinfo.BuildInfo, project string) (*services.BuildPublishSummary, error) {
+func (esm *EmptyArtifactoryServicesManager) PublishBuildInfo(build *buildinfo.BuildInfo, project string) (*clientutils.Sha256Summary, error) {
 	panic("Failed: Method is not implemented")
 }
 
@@ -226,7 +227,7 @@ func (esm *EmptyArtifactoryServicesManager) Move(params ...services.MoveCopyPara
 	panic("Failed: Method is not implemented")
 }
 
-func (esm *EmptyArtifactoryServicesManager) PublishGoProject(params _go.GoParams) error {
+func (esm *EmptyArtifactoryServicesManager) PublishGoProject(params _go.GoParams) (*utils.OperationSummary, error) {
 	panic("Failed: Method is not implemented")
 }
 

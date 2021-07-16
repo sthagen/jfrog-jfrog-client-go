@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -18,7 +21,7 @@ import (
 const (
 	Development = "development"
 	Agent       = "jfrog-client-go"
-	Version     = "0.22.2"
+	Version     = "0.25.0"
 )
 
 // In order to limit the number of items loaded from a reader into the memory, we use a buffers with this size limit.
@@ -164,7 +167,7 @@ func CopyMap(src map[string]string) (dst map[string]string) {
 	return
 }
 
-func PrepareLocalPathForUpload(localPath string, patternType PatternType) string {
+func ConvertLocalPatternToRegexp(localPath string, patternType PatternType) string {
 	if localPath == "./" || localPath == ".\\" {
 		return "^.*$"
 	}
@@ -206,15 +209,23 @@ func WildcardPathToRegExp(localPath string) string {
 
 func antPatternToRegExp(localPath string) string {
 	localPath = replaceSpecialChars(localPath)
-	var wildcard = ".*"
 	separator := getFileSeparator()
-	var antAsteriskToRegExp = "([^" + separator + "]*)"
+	var wildcard = ".*"
+	// ant `*` ~ regexp `([^/]*)` : `*` matches zero or more characters except from `/`.
+	var regAsterisk = "([^" + separator + "]*)"
+	// ant `**` ~ regexp `(.*)?` : `**` matches zero or more 'directories' in a path.
+	var doubleRegAsterisk = "(" + wildcard + ")?"
+
 	// `?` => `.{1}` : `?` matches one character.
 	localPath = strings.Replace(localPath, `?`, ".{1}", -1)
-	// `*` => `([^/]*)` : `*` matches zero or more characters except from `/`.
-	localPath = strings.Replace(localPath, `*`, antAsteriskToRegExp, -1)
-	// `**/` => `(.*/)?` : `**` matches zero or more 'directories' in a path.
-	localPath = strings.Replace(localPath, antAsteriskToRegExp+antAsteriskToRegExp+separator, "(.*"+separator+")?", -1)
+	// `*` => `([^/]*)`
+	localPath = strings.Replace(localPath, `*`, regAsterisk, -1)
+	// `**` => `(.*)?`
+	localPath = strings.Replace(localPath, regAsterisk+regAsterisk, doubleRegAsterisk, -1)
+	// Remove slashes near `**`
+	localPath = strings.Replace(localPath, doubleRegAsterisk+separator, doubleRegAsterisk, -1)
+	localPath = strings.Replace(localPath, separator+doubleRegAsterisk, doubleRegAsterisk, -1)
+
 	if strings.HasSuffix(localPath, "/") || strings.HasSuffix(localPath, "\\") {
 		localPath += wildcard
 	}
@@ -243,7 +254,8 @@ func replaceSpecialChars(path string) string {
 // Example 2:
 //      pattern = "repoA/1(.*)234" ; path = "repoB/1hello234" ; target = "{1}" ; ignoreRepo = true
 //      returns "hello"
-func BuildTargetPath(pattern, path, target string, ignoreRepo bool) (string, error) {
+// return (parsed target, placeholders replaced in target, error)
+func BuildTargetPath(pattern, path, target string, ignoreRepo bool) (string, bool, error) {
 	asteriskIndex := strings.Index(pattern, "*")
 	slashIndex := strings.Index(pattern, "/")
 	if shouldRemoveRepo(ignoreRepo, asteriskIndex, slashIndex) {
@@ -265,18 +277,28 @@ func BuildTargetPath(pattern, path, target string, ignoreRepo bool) (string, err
 	r, err := regexp.Compile(pattern)
 	err = errorutils.CheckError(err)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	groups := r.FindStringSubmatch(path)
-	size := len(groups)
-	if size > 0 {
-		for i := 1; i < size; i++ {
-			group := strings.Replace(groups[i], "\\", "/", -1)
-			target = strings.Replace(target, "{"+strconv.Itoa(i)+"}", group, -1)
-		}
+	if len(groups) > 0 {
+		target, replaceOccurred := ReplacePlaceHolders(groups, target)
+		return target, replaceOccurred, nil
 	}
-	return target, nil
+	return target, false, nil
+}
+
+// group - regular expression matched group to replace with placeholders
+// toReplace - target pattern to replace
+// Return - (parsed placeholders string, placeholders were  replaced)
+func ReplacePlaceHolders(groups []string, toReplace string) (string, bool) {
+	preReplaced := toReplace
+	for i := 1; i < len(groups); i++ {
+		group := strings.Replace(groups[i], "\\", "/", -1)
+		toReplace = strings.Replace(toReplace, "{"+strconv.Itoa(i)+"}", group, -1)
+	}
+	replaceOccurred := preReplaced != toReplace
+	return toReplace, replaceOccurred
 }
 
 func GetLogMsgPrefix(threadId int, dryRun bool) string {
@@ -428,4 +450,100 @@ func GetPatternType(patternTypes PatternTypes) PatternType {
 		return AntPattern
 	}
 	return WildCardPattern
+}
+
+type Sha256Summary struct {
+	sha256    string
+	succeeded bool
+}
+
+func NewSha256Summary() *Sha256Summary {
+	return &Sha256Summary{}
+}
+
+func (bps *Sha256Summary) IsSucceeded() bool {
+	return bps.succeeded
+}
+
+func (bps *Sha256Summary) SetSucceeded(succeeded bool) *Sha256Summary {
+	bps.succeeded = succeeded
+	return bps
+}
+
+func (bps *Sha256Summary) GetSha256() string {
+	return bps.sha256
+}
+
+func (bps *Sha256Summary) SetSha256(sha256 string) *Sha256Summary {
+	bps.sha256 = sha256
+	return bps
+}
+
+// Represents a file transfer from SourcePath to TargetPath.
+// Each of the paths can be on the local machine (full or relative) or in Artifactory (full URL).
+// The file's Sha256 is calculated by Artifactory during the upload. we read the sha256 from the HTTP's response body.
+type FileTransferDetails struct {
+	SourcePath string `json:"sourcePath,omitempty"`
+	TargetPath string `json:"targetPath,omitempty"`
+	Sha256     string `json:"sha256,omitempty"`
+}
+
+// Represent deployed artifact's details returned from build-info project for maven and gradle.
+type DeployableArtifactDetails struct {
+	SourcePath      string `json:"sourcePath,omitempty"`
+	ArtifactDest    string `json:"artifactDest,omitempty"`
+	Sha256          string `json:"sha256,omitempty"`
+	DeploySucceeded bool   `json:"deploySucceeded,omitempty"`
+}
+
+func (detailes *DeployableArtifactDetails) CreateFileTransferDetails() FileTransferDetails {
+	return FileTransferDetails{SourcePath: detailes.SourcePath, TargetPath: detailes.ArtifactDest, Sha256: detailes.Sha256}
+}
+
+type UploadResponseBody struct {
+	Checksums ChecksumDetails `json:"checksums,omitempty"`
+}
+
+type ChecksumDetails struct {
+	Md5    string
+	Sha1   string
+	Sha256 string
+}
+
+func SaveFileTransferDetailsInTempFile(filesDetails *[]FileTransferDetails) (string, error) {
+	tempFile, err := fileutils.CreateTempFile()
+	if err != nil {
+		return "", err
+	}
+	filePath := tempFile.Name()
+	return filePath, SaveFileTransferDetailsInFile(filePath, filesDetails)
+}
+
+func SaveFileTransferDetailsInFile(filePath string, details *[]FileTransferDetails) error {
+	// Marshal and save files details to a file.
+	// The details will be saved in a json format in an array with key "files" for printing later
+	finalResult := struct {
+		Files *[]FileTransferDetails `json:"files"`
+	}{}
+	finalResult.Files = details
+	files, err := json.Marshal(finalResult)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	return errorutils.CheckError(ioutil.WriteFile(filePath, files, 0700))
+}
+
+// Extract sha256 of the uploaded file (calculated by artifactory) from the response's body.
+// In case of uploading archive with "--explode" the response body will be empty and sha256 won't be shown at
+// the detailed summary.
+func ExtractSha256FromResponseBody(body []byte) (string, error) {
+	if len(body) > 0 {
+		responseBody := new(UploadResponseBody)
+		err := json.Unmarshal(body, &responseBody)
+		if errorutils.CheckError(err) != nil {
+			return "", err
+		}
+		return responseBody.Checksums.Sha256, nil
+	}
+	return "", nil
 }

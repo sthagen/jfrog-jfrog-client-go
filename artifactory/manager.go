@@ -9,6 +9,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/config"
 	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	ioutils "github.com/jfrog/jfrog-client-go/utils/io"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 )
@@ -32,10 +33,13 @@ func NewWithProgress(config config.Config, progress ioutils.ProgressMgr) (Artifa
 	client, err := jfroghttpclient.JfrogClientBuilder().
 		SetCertificatesPath(config.GetCertificatesPath()).
 		SetInsecureTls(config.IsInsecureTls()).
+		SetContext(config.GetContext()).
+		SetTimeout(config.GetHttpTimeout()).
 		SetClientCertPath(artDetails.GetClientCertPath()).
 		SetClientCertKeyPath(artDetails.GetClientCertKeyPath()).
 		AppendPreRequestInterceptor(artDetails.RunPreRequestFunctions).
 		SetContext(config.GetContext()).
+		SetRetries(config.GetHttpRetries()).
 		Build()
 	if err != nil {
 		return nil, err
@@ -159,7 +163,7 @@ func (sm *ArtifactoryServicesManagerImp) GetPermissionTarget(permissionTargetNam
 	return permissionTargetService.Get(permissionTargetName)
 }
 
-func (sm *ArtifactoryServicesManagerImp) PublishBuildInfo(build *buildinfo.BuildInfo, projectKey string) (*services.BuildPublishSummary, error) {
+func (sm *ArtifactoryServicesManagerImp) PublishBuildInfo(build *buildinfo.BuildInfo, projectKey string) (*clientutils.Sha256Summary, error) {
 	buildInfoService := services.NewBuildInfoService(sm.config.GetServiceDetails(), sm.client)
 	buildInfoService.DryRun = sm.config.IsDryRun()
 	return buildInfoService.PublishBuildInfo(build, projectKey)
@@ -300,7 +304,7 @@ func (sm *ArtifactoryServicesManagerImp) Move(params ...services.MoveCopyParams)
 	return moveService.MoveCopyServiceMoveFilesWrapper(params...)
 }
 
-func (sm *ArtifactoryServicesManagerImp) PublishGoProject(params _go.GoParams) error {
+func (sm *ArtifactoryServicesManagerImp) PublishGoProject(params _go.GoParams) (*utils.OperationSummary, error) {
 	goService := _go.NewGoService(sm.client)
 	goService.ArtDetails = sm.config.GetServiceDetails()
 	return goService.PublishPackage(params)
