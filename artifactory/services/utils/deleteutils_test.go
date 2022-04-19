@@ -41,8 +41,8 @@ func TestMatchingDelete(t *testing.T) {
 	assertDeletePattern("s/a/h/path/", actual, t)
 	actual, _ = WildcardToDirsPath("a/b/*********/*******/", "a/b/c/d/e.zip")
 	assertDeletePattern("a/b/c/d/", actual, t)
-	actual, err := WildcardToDirsPath("s/*/a/*/*", "s/a/a/path/k/b/c/d/b.zip")
-	assertDeletePatternErr(err.Error(), "Delete pattern must end with \"/\"", t)
+	_, err := WildcardToDirsPath("s/*/a/*/*", "s/a/a/path/k/b/c/d/b.zip")
+	assertDeletePatternErr("delete pattern must end with \"/\"", err.Error(), t)
 }
 
 func assertDeletePattern(expected, actual string, t *testing.T) {
@@ -58,9 +58,8 @@ func assertDeletePatternErr(expected, actual string, t *testing.T) {
 }
 
 func TestWriteCandidateDirsToBeDeleted(t *testing.T) {
-	testPath, err := getBaseTestDir()
+	testPath := getBaseTestDir(t)
 	{
-		assert.NoError(t, err)
 		var bufferFiles []*content.ContentReader
 		for i := 1; i <= 3; i++ {
 			bufferFiles = append(bufferFiles, content.NewContentReader(filepath.Join(testPath, "buffer_file_ascending_order_"+strconv.Itoa(i)+".json"), content.DefaultKey))
@@ -70,7 +69,7 @@ func TestWriteCandidateDirsToBeDeleted(t *testing.T) {
 		artifactNotToBeDeleteReader := content.NewContentReader(filepath.Join(testPath, "artifact_file_1.json"), content.DefaultKey)
 		assert.NoError(t, WriteCandidateDirsToBeDeleted(bufferFiles, artifactNotToBeDeleteReader, resultWriter))
 		assert.NoError(t, resultWriter.Close())
-		result, err := fileutils.FilesIdentical(filepath.Join(testPath, "candidate_dirs_to_be_deleted_results.json"), resultWriter.GetFilePath())
+		result, err := fileutils.JsonEqual(filepath.Join(testPath, "candidate_dirs_to_be_deleted_results.json"), resultWriter.GetFilePath())
 		assert.NoError(t, err)
 		assert.True(t, result)
 		assert.NoError(t, resultWriter.RemoveOutputFilePath())
@@ -89,8 +88,7 @@ func TestWriteCandidateDirsToBeDeleted(t *testing.T) {
 }
 
 func TestFilterCandidateToBeDeleted(t *testing.T) {
-	testPath, err := getBaseTestDir()
-	assert.NoError(t, err)
+	testPath := getBaseTestDir(t)
 	resultWriter, err := content.NewContentWriter(content.DefaultKey, true, false)
 	assert.NoError(t, err)
 	deleteCandidates := content.NewContentReader(filepath.Join(testPath, "prebuffer_file.json"), content.DefaultKey)
@@ -103,13 +101,13 @@ func TestFilterCandidateToBeDeleted(t *testing.T) {
 	assert.NoError(t, err)
 	for i, val := range sortedFiles {
 		assert.Equal(t, 1, len(val.GetFilesPaths()))
-		result, err := fileutils.FilesIdentical(val.GetFilesPaths()[0], filepath.Join(testPath, "buffer_file_ascending_order_"+strconv.Itoa(i+1)+".json"))
+		result, err := fileutils.JsonEqual(val.GetFilesPaths()[0], filepath.Join(testPath, "buffer_file_ascending_order_"+strconv.Itoa(i+1)+".json"))
 		assert.NoError(t, err)
 		assert.True(t, result)
 		assert.NoError(t, val.Close())
 	}
 	assert.NoError(t, resultWriter.Close())
-	result, err := fileutils.FilesIdentical(resultWriter.GetFilePath(), filepath.Join(testPath, "candidate_artifact_to_be_deleted_results.json"))
+	result, err := fileutils.JsonEqual(resultWriter.GetFilePath(), filepath.Join(testPath, "candidate_artifact_to_be_deleted_results.json"))
 	assert.NoError(t, err)
 	assert.True(t, result)
 	assert.NoError(t, resultWriter.RemoveOutputFilePath())

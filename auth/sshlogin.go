@@ -3,8 +3,6 @@ package auth
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"regexp"
@@ -24,8 +22,8 @@ func SshAuthentication(url, sshKeyPath, sshPassphrase string) (sshAuthHeaders ma
 	}
 
 	var sshAuth ssh.AuthMethod
-	log.Info("Performing SSH authentication...")
-	log.Info("Trying to authenticate via SSH-Agent...")
+	log.Debug("Performing SSH authentication...")
+	log.Debug("Trying to authenticate via SSH-Agent...")
 
 	// Try authenticating via agent. If failed, try authenticating via key.
 	sshAuth, err = sshAuthAgent()
@@ -33,20 +31,20 @@ func SshAuthentication(url, sshKeyPath, sshPassphrase string) (sshAuthHeaders ma
 		sshAuthHeaders, newUrl, err = getSshHeaders(sshAuth, host, port)
 	}
 	if err != nil {
-		log.Info("Authentication via SSH-Agent failed. Error:\n", err)
-		log.Info("Trying to authenticate via SSH Key...")
+		log.Debug("Authentication via SSH-Agent failed. Error:\n", err)
+		log.Debug("Trying to authenticate via SSH Key...")
 
 		// Check if key specified
 		if len(sshKeyPath) <= 0 {
-			log.Info("Authentication via SSH key failed.")
-			return nil, "", errorutils.CheckError(fmt.Errorf("SSH key not specified."))
+			log.Error("Authentication via SSH key failed.")
+			return nil, "", errorutils.CheckErrorf("SSH key not specified.")
 		}
 
 		// Read key and passphrase
 		var sshKey, sshPassphraseBytes []byte
 		sshKey, sshPassphraseBytes, err = readSshKeyAndPassphrase(sshKeyPath, sshPassphrase)
 		if err != nil {
-			log.Info("Authentication via SSH key failed.")
+			log.Error("Authentication via SSH key failed.")
 			return nil, "", err
 		}
 
@@ -56,13 +54,13 @@ func SshAuthentication(url, sshKeyPath, sshPassphrase string) (sshAuthHeaders ma
 			sshAuthHeaders, newUrl, err = getSshHeaders(sshAuth, host, port)
 		}
 		if err != nil {
-			log.Info("Authentication via SSH Key failed.")
+			log.Error("Authentication via SSH Key failed.")
 			return nil, "", err
 		}
 	}
 
 	// If successful, return headers
-	log.Info("SSH authentication successful.")
+	log.Debug("SSH authentication successful.")
 	return sshAuthHeaders, newUrl, nil
 }
 
@@ -72,6 +70,7 @@ func getSshHeaders(sshAuth ssh.AuthMethod, host string, port int) (map[string]st
 		Auth: []ssh.AuthMethod{
 			sshAuth,
 		},
+		//#nosec G106 -- Used to get ssh headers only.
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
@@ -96,8 +95,10 @@ func getSshHeaders(sshAuth ssh.AuthMethod, host string, port int) (map[string]st
 		return nil, "", errorutils.CheckError(err)
 	}
 	var buf bytes.Buffer
-	io.Copy(&buf, stdout)
-
+	_, err = io.Copy(&buf, stdout)
+	if errorutils.CheckError(err) != nil {
+		return nil, "", err
+	}
 	var result SshAuthResult
 	if err = json.Unmarshal(buf.Bytes(), &result); errorutils.CheckError(err) != nil {
 		return nil, "", err
@@ -119,7 +120,7 @@ func readSshKeyAndPassphrase(sshKeyPath, sshPassphrase string) ([]byte, []byte, 
 		}
 		// If key is encrypted but no passphrase specified
 		if encryptedKey {
-			return nil, nil, errorutils.CheckError(errors.New("SSH Key is encrypted but no passphrase was specified."))
+			return nil, nil, errorutils.CheckErrorf("SSH Key is encrypted but no passphrase was specified.")
 		}
 	}
 
@@ -128,11 +129,9 @@ func readSshKeyAndPassphrase(sshKeyPath, sshPassphrase string) ([]byte, []byte, 
 
 func IsEncrypted(buffer []byte) (bool, error) {
 	_, err := ssh.ParsePrivateKey(buffer)
-	if err != nil {
-		if _, ok := err.(*ssh.PassphraseMissingError); ok {
-			// Key is encrypted
-			return true, nil
-		}
+	if _, ok := err.(*ssh.PassphraseMissingError); ok {
+		// Key is encrypted
+		return true, nil
 	}
 	// Key is not encrypted or an error occurred
 	return false, err
@@ -153,7 +152,7 @@ func parseUrl(url string) (protocol, host string, port int, err error) {
 		host = groups[2]
 		port, err = strconv.Atoi(groups[3])
 		if err != nil {
-			err = errorutils.CheckError(errors.New("URL: " + url + " is invalid. Expecting ssh://<host>:<port> or http(s)://..."))
+			err = errorutils.CheckErrorf("URL: " + url + " is invalid. Expecting ssh://<host>:<port> or http(s)://...")
 		}
 		return
 	}
@@ -173,7 +172,13 @@ func parseUrl(url string) (protocol, host string, port int, err error) {
 }
 
 func sshAuthPublicKey(sshKey, sshPassphrase []byte) (ssh.AuthMethod, error) {
-	key, err := ssh.ParsePrivateKeyWithPassphrase(sshKey, sshPassphrase)
+	var key ssh.Signer
+	var err error
+	if len(sshPassphrase) == 0 {
+		key, err = ssh.ParsePrivateKey(sshKey)
+	} else {
+		key, err = ssh.ParsePrivateKeyWithPassphrase(sshKey, sshPassphrase)
+	}
 	if errorutils.CheckError(err) != nil {
 		return nil, err
 	}

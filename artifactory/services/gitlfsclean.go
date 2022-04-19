@@ -117,7 +117,7 @@ func detectRepo(gitPath, rtUrl string) (string, error) {
 	}
 	errMsg2 := fmt.Sprintf("Cannot detect Git LFS repository from .git/config: %s", err.Error())
 	suggestedSolution := "You may want to try passing the --repo option manually"
-	return "", errorutils.CheckError(fmt.Errorf("%s%s%s", errMsg1, errMsg2, suggestedSolution))
+	return "", errorutils.CheckErrorf("%s%s%s", errMsg1, errMsg2, suggestedSolution)
 }
 
 func extractRepo(gitPath, configFile, rtUrl string, lfsUrlExtractor lfsUrlExtractorFunc) (string, error) {
@@ -130,25 +130,29 @@ func extractRepo(gitPath, configFile, rtUrl string, lfsUrlExtractor lfsUrlExtrac
 		return "", err
 	}
 	if artifactoryConfiguredUrl.Scheme != lfsUrl.Scheme || artifactoryConfiguredUrl.Host != lfsUrl.Host {
-		return "", fmt.Errorf("Configured Git LFS URL %q does not match provided URL %q", lfsUrl.String(), artifactoryConfiguredUrl.String())
+		return "", fmt.Errorf("configured Git LFS URL %q does not match provided URL %q", lfsUrl.String(), artifactoryConfiguredUrl.String())
 	}
 	artifactoryConfiguredUrlPath := path.Clean("/"+artifactoryConfiguredUrl.Path+"/api/lfs") + "/"
 	lfsUrlPath := path.Clean(lfsUrl.Path)
 	if strings.HasPrefix(lfsUrlPath, artifactoryConfiguredUrlPath) {
 		return lfsUrlPath[len(artifactoryConfiguredUrlPath):], nil
 	}
-	return "", fmt.Errorf("Configured Git LFS URL %q does not match provided URL %q", lfsUrl.String(), artifactoryConfiguredUrl.String())
+	return "", fmt.Errorf("configured Git LFS URL %q does not match provided URL %q", lfsUrl.String(), artifactoryConfiguredUrl.String())
 }
 
 type lfsUrlExtractorFunc func(conf *gitconfig.Config) (*url.URL, error)
 
-func getLfsUrl(gitPath, configFile string, lfsUrlExtractor lfsUrlExtractorFunc) (*url.URL, error) {
-	var lfsUrl *url.URL
+func getLfsUrl(gitPath, configFile string, lfsUrlExtractor lfsUrlExtractorFunc) (lfsUrl *url.URL, err error) {
 	lfsConf, err := os.Open(path.Join(gitPath, configFile))
 	if err != nil {
 		return nil, errorutils.CheckError(err)
 	}
-	defer lfsConf.Close()
+	defer func() {
+		e := lfsConf.Close()
+		if err == nil {
+			err = errorutils.CheckError(e)
+		}
+	}()
 	conf := gitconfig.New()
 	err = gitconfig.NewDecoder(lfsConf).Decode(conf)
 	if err != nil {

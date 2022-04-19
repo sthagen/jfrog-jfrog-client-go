@@ -3,7 +3,6 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"net"
 	"net/http"
 	"time"
@@ -28,6 +27,8 @@ type httpClientBuilder struct {
 	ctx                 context.Context
 	timeout             time.Duration
 	retries             int
+	retryWaitMilliSecs  int
+	httpClient          *http.Client
 }
 
 func (builder *httpClientBuilder) SetCertificatesPath(certificatesPath string) *httpClientBuilder {
@@ -50,6 +51,11 @@ func (builder *httpClientBuilder) SetInsecureTls(insecureTls bool) *httpClientBu
 	return builder
 }
 
+func (builder *httpClientBuilder) SetHttpClient(httpClient *http.Client) *httpClientBuilder {
+	builder.httpClient = httpClient
+	return builder
+}
+
 func (builder *httpClientBuilder) SetContext(ctx context.Context) *httpClientBuilder {
 	builder.ctx = ctx
 	return builder
@@ -65,32 +71,43 @@ func (builder *httpClientBuilder) SetRetries(retries int) *httpClientBuilder {
 	return builder
 }
 
+func (builder *httpClientBuilder) SetRetryWaitMilliSecs(retryWaitMilliSecs int) *httpClientBuilder {
+	builder.retryWaitMilliSecs = retryWaitMilliSecs
+	return builder
+}
+
 func (builder *httpClientBuilder) AddClientCertToTransport(transport *http.Transport) error {
 	if builder.clientCertPath != "" {
-		cert, err := tls.LoadX509KeyPair(builder.clientCertPath, builder.clientCertKeyPath)
+		certificate, err := cert.LoadCertificate(builder.clientCertPath, builder.clientCertKeyPath)
 		if err != nil {
-			return errorutils.CheckError(errors.New("Failed loading client certificate: " + err.Error()))
+			return err
 		}
-		transport.TLSClientConfig.Certificates = []tls.Certificate{cert}
+		transport.TLSClientConfig.Certificates = []tls.Certificate{certificate}
 	}
-
 	return nil
 }
 
 func (builder *httpClientBuilder) Build() (*HttpClient, error) {
+	if builder.httpClient != nil {
+		// Using a custom http.Client, pass-though.
+		return &HttpClient{client: builder.httpClient, ctx: builder.ctx, retries: builder.retries, retryWaitMilliSecs: builder.retryWaitMilliSecs}, nil
+	}
+
 	var err error
 	var transport *http.Transport
+
 	if builder.certificatesDirPath == "" {
 		transport = builder.createDefaultHttpTransport()
+		//#nosec G402 -- Insecure TLS allowed here.
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: builder.insecureTls}
 	} else {
 		transport, err = cert.GetTransportWithLoadedCert(builder.certificatesDirPath, builder.insecureTls, builder.createDefaultHttpTransport())
 		if err != nil {
-			return nil, errorutils.CheckError(errors.New("Failed creating HttpClient: " + err.Error()))
+			return nil, errorutils.CheckErrorf("Failed creating HttpClient: " + err.Error())
 		}
 	}
 	err = builder.AddClientCertToTransport(transport)
-	return &HttpClient{client: &http.Client{Transport: transport}, ctx: builder.ctx, retries: builder.retries}, err
+	return &HttpClient{client: &http.Client{Transport: transport}, ctx: builder.ctx, retries: builder.retries, retryWaitMilliSecs: builder.retryWaitMilliSecs}, err
 }
 
 func (builder *httpClientBuilder) createDefaultHttpTransport() *http.Transport {

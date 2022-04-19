@@ -2,10 +2,8 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	artifactoryUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/auth"
@@ -16,8 +14,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const defaultMaxWaitMinutes = 60    // 1 hour
-const defaultSyncSleepInterval = 10 // 10 seconds
+const defaultMaxWaitMinutes = 60           // 1 hour
+const defaultSyncSleepIntervalSeconds = 10 // 10 seconds
 
 type DistributeReleaseBundleService struct {
 	client      *jfroghttpclient.JfrogHttpClient
@@ -78,8 +76,8 @@ func (dr *DistributeReleaseBundleService) execDistribute(name, version string, d
 	if err != nil {
 		return "", err
 	}
-	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
-		return "", errorutils.CheckError(errors.New("Distribution response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK, http.StatusAccepted); err != nil {
+		return "", errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, utils.IndentJson(body)))
 	}
 	response := distributionResponseBody{}
 	err = json.Unmarshal(body, &response)
@@ -105,29 +103,33 @@ func (dr *DistributeReleaseBundleService) waitForDistribution(distributeParams *
 		maxWaitMinutes = dr.MaxWaitMinutes
 	}
 	distributingMessage := fmt.Sprintf("Sync: Distributing %s/%s...", distributeParams.Name, distributeParams.Version)
-	for timeElapsed := 0; timeElapsed < maxWaitMinutes*60; timeElapsed += defaultSyncSleepInterval {
-		if timeElapsed%60 == 0 {
-			log.Info(distributingMessage)
-		}
-		response, err := distributeBundleService.GetStatus(distributionStatusParams)
-		if err != nil {
-			return err
-		}
-
-		if (*response)[0].Status == Failed {
-			bytes, err := json.Marshal(response)
+	retryExecutor := &utils.RetryExecutor{
+		MaxRetries:               maxWaitMinutes * 60 / defaultMaxWaitMinutes,
+		RetriesIntervalMilliSecs: defaultSyncSleepIntervalSeconds * 1000,
+		ErrorMessage:             "",
+		LogMsgPrefix:             distributingMessage,
+		ExecutionHandler: func() (bool, error) {
+			response, err := distributeBundleService.GetStatus(distributionStatusParams)
 			if err != nil {
-				return errorutils.CheckError(err)
+				return false, errorutils.CheckError(err)
 			}
-			return errorutils.CheckError(errors.New("Distribution failed: " + utils.IndentJson(bytes)))
-		}
-		if (*response)[0].Status == Completed {
-			log.Info("Distribution Completed!")
-			return nil
-		}
-		time.Sleep(time.Second * defaultSyncSleepInterval)
+			if (*response)[0].Status == Failed {
+				bytes, err := json.Marshal(response)
+				if err != nil {
+					return false, errorutils.CheckError(err)
+				}
+				return false, errorutils.CheckErrorf("Distribution failed: " + utils.IndentJson(bytes))
+			}
+			if (*response)[0].Status == Completed {
+				log.Info("Distribution Completed!")
+				return false, nil
+			}
+			// Keep trying to get an answer
+			log.Info(distributingMessage)
+			return true, nil
+		},
 	}
-	return errorutils.CheckError(errors.New("Timeout for sync distribution"))
+	return retryExecutor.Execute()
 }
 
 type DistributionBody struct {

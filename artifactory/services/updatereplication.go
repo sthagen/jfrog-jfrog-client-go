@@ -2,7 +2,6 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -26,7 +25,7 @@ func (rs *UpdateReplicationService) GetJfrogHttpClient() *jfroghttpclient.JfrogH
 	return rs.client
 }
 
-func (rs *UpdateReplicationService) performRequest(params *utils.ReplicationBody) error {
+func (rs *UpdateReplicationService) performRequest(params *utils.UpdateReplicationBody) error {
 	content, err := json.Marshal(params)
 	if err != nil {
 		return errorutils.CheckError(err)
@@ -42,8 +41,8 @@ func (rs *UpdateReplicationService) performRequest(params *utils.ReplicationBody
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + clientutils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK, http.StatusCreated); err != nil {
+		return errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
 	log.Debug("Artifactory response:", resp.Status)
 	log.Info("Done " + operationString + " repository.")
@@ -51,7 +50,7 @@ func (rs *UpdateReplicationService) performRequest(params *utils.ReplicationBody
 }
 
 func (rs *UpdateReplicationService) UpdateReplication(params UpdateReplicationParams) error {
-	return rs.performRequest(utils.CreateReplicationBody(params.ReplicationParams))
+	return rs.performRequest(utils.CreateUpdateReplicationBody(params.ReplicationParams))
 }
 
 func NewUpdateReplicationParams() UpdateReplicationParams {

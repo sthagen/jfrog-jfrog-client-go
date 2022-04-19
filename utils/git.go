@@ -2,7 +2,6 @@ package utils
 
 import (
 	"bufio"
-	"errors"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -35,16 +34,18 @@ func NewGitManager(path string) *manager {
 
 func (m *manager) ReadConfig() error {
 	if m.path == "" {
-		return errorutils.CheckError(errors.New(".git path must be defined"))
+		return errorutils.CheckErrorf(".git path must be defined")
 	}
 	if !fileutils.IsPathExists(m.path, false) {
-		return errorutils.CheckError(errors.New(".git path must exist in order to collect vcs details"))
+		return errorutils.CheckErrorf(".git path must exist in order to collect vcs details")
 	}
 
 	m.handleSubmoduleIfNeeded()
 	m.readRevisionAndBranch()
 	m.readUrl()
-	m.readMessage()
+	if m.revision != "" {
+		m.readMessage()
+	}
 	return m.err
 }
 
@@ -73,7 +74,7 @@ func (m *manager) handleSubmoduleIfNeeded() {
 	line := string(content)
 	// Expecting git submodule to have exactly one line, with a prefix and the path to the actual submodule's git.
 	if !strings.HasPrefix(line, submoduleDotGitPrefix) {
-		m.err = errorutils.CheckError(errors.New("failed to parse .git path for submodule"))
+		m.err = errorutils.CheckErrorf("failed to parse .git path for submodule")
 		return
 	}
 
@@ -86,7 +87,7 @@ func (m *manager) handleSubmoduleIfNeeded() {
 		return
 	}
 	if !exists {
-		m.err = errorutils.CheckError(errors.New("path found in .git file '" + m.path + "' does not exist: '" + actualAbsPath + "'"))
+		m.err = errorutils.CheckErrorf("path found in .git file '" + m.path + "' does not exist: '" + actualAbsPath + "'")
 		return
 	}
 
@@ -120,25 +121,30 @@ func (m *manager) readUrl() {
 		m.err = err
 		return
 	}
-	defer file.Close()
+	defer func() {
+		e := file.Close()
+		if m.err == nil {
+			m.err = errorutils.CheckError(e)
+		}
+	}()
 
 	scanner := bufio.NewScanner(file)
 	var IsNextLineUrl bool
 	var originUrl string
 	for scanner.Scan() {
 		if IsNextLineUrl {
-			text := scanner.Text()
-			strings.HasPrefix(text, "url")
-			originUrl = strings.TrimSpace(strings.SplitAfter(text, "=")[1])
-			break
+			text := strings.TrimSpace(scanner.Text())
+			if strings.HasPrefix(text, "url") {
+				originUrl = strings.TrimSpace(strings.SplitAfter(text, "=")[1])
+				break
+			}
 		}
 		if scanner.Text() == "[remote \"origin\"]" {
 			IsNextLineUrl = true
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		errorutils.CheckError(err)
-		m.err = err
+		m.err = errorutils.CheckError(err)
 		return
 	}
 	if !strings.HasSuffix(originUrl, ".git") {
@@ -166,7 +172,12 @@ func (m *manager) getRevisionAndBranchPath() (revision, refUrl string, err error
 		err = e
 		return
 	}
-	defer file.Close()
+	defer func() {
+		e = file.Close()
+		if err == nil {
+			err = errorutils.CheckError(e)
+		}
+	}()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -177,9 +188,7 @@ func (m *manager) getRevisionAndBranchPath() (revision, refUrl string, err error
 		}
 		revision = text
 	}
-	if err = scanner.Err(); err != nil {
-		errorutils.CheckError(err)
-	}
+	err = errorutils.CheckError(scanner.Err())
 	return
 }
 
@@ -225,7 +234,12 @@ func (m *manager) readRevisionFromRef(refPath string) {
 		m.err = err
 		return
 	}
-	defer file.Close()
+	defer func() {
+		e := file.Close()
+		if m.err == nil {
+			m.err = e
+		}
+	}()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -239,7 +253,6 @@ func (m *manager) readRevisionFromRef(refPath string) {
 	}
 
 	m.revision = revision
-	return
 }
 
 func (m *manager) readRevisionFromPackedRef(ref string) {
@@ -255,7 +268,12 @@ func (m *manager) readRevisionFromPackedRef(ref string) {
 			m.err = err
 			return
 		}
-		defer file.Close()
+		defer func() {
+			e := file.Close()
+			if m.err == nil {
+				m.err = e
+			}
+		}()
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
@@ -266,7 +284,7 @@ func (m *manager) readRevisionFromPackedRef(ref string) {
 				if len(split) == 2 {
 					m.revision = split[0]
 				} else {
-					m.err = errorutils.CheckError(errors.New("failed fetching revision for ref :" + ref + " - Unexpected line structure in packed-refs file"))
+					m.err = errorutils.CheckErrorf("failed fetching revision for ref :" + ref + " - Unexpected line structure in packed-refs file")
 				}
 				return
 			}
@@ -276,9 +294,7 @@ func (m *manager) readRevisionFromPackedRef(ref string) {
 			return
 		}
 	}
-
-	m.err = errorutils.CheckError(errors.New("failed fetching revision from git config, from ref: " + ref))
-	return
+	log.Debug("No packed-refs file was found. Assuming git repository is empty")
 }
 
 func (m *manager) readMessage() {

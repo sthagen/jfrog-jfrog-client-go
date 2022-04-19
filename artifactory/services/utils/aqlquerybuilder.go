@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"strconv"
 	"strings"
 
@@ -10,10 +11,16 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils"
 )
 
-// Returns an AQL body string to search file in Artifactory by pattern, according the the specified arguments requirements.
+// Returns an AQL body string to search file in Artifactory by pattern, according the specified arguments requirements.
 func CreateAqlBodyForSpecWithPattern(params *CommonParams) (string, error) {
 	searchPattern := prepareSourceSearchPattern(params.Pattern, params.Target, true)
-	repoPathFileTriples := createRepoPathFileTriples(searchPattern, params.Recursive)
+	repoPathFileTriples, singleRepo, err := createRepoPathFileTriples(searchPattern, params.Recursive)
+	if err != nil {
+		return "", err
+	}
+	if params.Transitive && !singleRepo {
+		return "", errorutils.CheckErrorf("When searching or downloading with the transitive setting, the pattern must include a single repository only, meaning wildcards are allowed only after the first slash.")
+	}
 	includeRoot := strings.Count(searchPattern, "/") < 2
 	triplesSize := len(repoPathFileTriples)
 
@@ -23,7 +30,10 @@ func CreateAqlBodyForSpecWithPattern(params *CommonParams) (string, error) {
 	}
 	itemTypeQuery := buildItemTypeQueryPart(params)
 	nePath := buildNePathPart(triplesSize == 0 || includeRoot)
-	excludeQuery := buildExcludeQueryPart(params, triplesSize == 0 || params.Recursive, params.Recursive)
+	excludeQuery, err := buildExcludeQueryPart(params, triplesSize == 0 || params.Recursive, params.Recursive)
+	if err != nil {
+		return "", err
+	}
 	releaseBundle, err := buildReleaseBundleQuery(params)
 	if err != nil {
 		return "", err
@@ -113,11 +123,15 @@ func createAqlQueryForBuild(includeQueryPart string, artifactsQuery bool, builds
 }
 
 //noinspection GoUnusedExportedFunction
-func CreateAqlQueryForNpm(npmName, npmVersion string) string {
+func CreateAqlQueryForYarn(npmName, npmVersion string) string {
 	itemsPart :=
 		`items.find({` +
 			`"@npm.name":"%s",` +
-			`"@npm.version":"%s"` +
+			`"$or": [` +
+			// sometimes the npm.version in the repository is written with "v" prefix, so we search both syntaxes
+			`{"@npm.version":"%[2]s"},` +
+			`{"@npm.version":"v%[2]s"}` +
+			`]` +
 			`})%s`
 	return fmt.Sprintf(itemsPart, npmName, npmVersion, buildIncludeQueryPart([]string{"name", "repo", "path", "actual_sha1", "actual_md5"}))
 }
@@ -133,7 +147,18 @@ func CreateAqlQueryForPypi(repo, file string) string {
 			`}]` +
 			`}]` +
 			`})%s`
-	return fmt.Sprintf(itemsPart, repo, file, buildIncludeQueryPart([]string{"name", "repo", "path", "actual_md5", "actual_sha1"}))
+	return fmt.Sprintf(itemsPart, repo, file, buildIncludeQueryPart([]string{"name", "repo", "path", "actual_md5", "actual_sha1", "sha256"}))
+}
+
+func CreateAqlQueryForLatestCreated(repo, path string) string {
+	itemsPart :=
+		`items.find({` +
+			`"repo": "%s",` +
+			`"path": {"$match": "%s"}` +
+			`})` +
+			`.sort({%s})` +
+			`.limit(1)`
+	return fmt.Sprintf(itemsPart, repo, path, buildSortQueryPart([]string{"created"}, "desc"))
 }
 
 func prepareSearchPattern(pattern string, repositoryExists bool) string {
@@ -228,13 +253,15 @@ func buildInnerArchiveQueryPart(triple RepoPathFile, archivePath, archiveName st
 	return fmt.Sprintf(innerQueryPattern, getAqlValue(triple.repo), getAqlValue(triple.path), getAqlValue(triple.file), getAqlValue(archivePath), getAqlValue(archiveName))
 }
 
-func buildExcludeQueryPart(params *CommonParams, useLocalPath, recursive bool) string {
+func buildExcludeQueryPart(params *CommonParams, useLocalPath, recursive bool) (string, error) {
 	excludeQuery := ""
 	var excludeTriples []RepoPathFile
-	if len(params.GetExclusions()) > 0 {
-		for _, exclusion := range params.GetExclusions() {
-			excludeTriples = append(excludeTriples, createRepoPathFileTriples(prepareSearchPattern(exclusion, true), recursive)...)
+	for _, exclusion := range params.GetExclusions() {
+		repoPathFileTriples, _, err := createRepoPathFileTriples(prepareSearchPattern(exclusion, true), recursive)
+		if err != nil {
+			return "", err
 		}
+		excludeTriples = append(excludeTriples, repoPathFileTriples...)
 	}
 
 	for _, excludeTriple := range excludeTriples {
@@ -243,16 +270,18 @@ func buildExcludeQueryPart(params *CommonParams, useLocalPath, recursive bool) s
 			excludePath = "*"
 		}
 		excludeRepoStr := ""
-		if excludeTriple.repo != "" {
+
+		// repo="*" may cause an error to be returned from Artifactory in transitive search.
+		if excludeTriple.repo != "" && excludeTriple.repo != "*" {
 			excludeRepoStr = fmt.Sprintf(`"repo":{"$nmatch":"%s"},`, excludeTriple.repo)
 		}
 		excludeQuery += fmt.Sprintf(`"$or":[{%s"path":{"$nmatch":"%s"},"name":{"$nmatch":"%s"}}],`, excludeRepoStr, excludePath, excludeTriple.file)
 	}
-	return excludeQuery
+	return excludeQuery, nil
 }
 
 func buildReleaseBundleQuery(params *CommonParams) (string, error) {
-	bundleName, bundleVersion, err := parseNameAndVersion(params.Bundle, false)
+	bundleName, bundleVersion, err := ParseNameAndVersion(params.Bundle, false)
 	if bundleName == "" || err != nil {
 		return "", err
 	}
@@ -268,7 +297,7 @@ func buildReleaseBundleQuery(params *CommonParams) (string, error) {
 // If requiredArtifactProps is NONE or 'includePropertiesInAqlForSpec' return false,
 // "property" field won't be included due to a limitation in the AQL implementation in Artifactory.
 func getQueryReturnFields(specFile *CommonParams, requiredArtifactProps RequiredArtifactProps) []string {
-	returnFields := []string{"name", "repo", "path", "actual_md5", "actual_sha1", "size", "type", "modified", "created"}
+	returnFields := []string{"name", "repo", "path", "actual_md5", "actual_sha1", "sha256", "size", "type", "modified", "created"}
 	if !includePropertiesInAqlForSpec(specFile) {
 		// Sort dose not work when property is in the include section. in this case we will append properties in later stage.
 		return appendMissingFields(specFile.SortBy, returnFields)
@@ -312,8 +341,8 @@ func BuildQueryFromSpecFile(specFile *CommonParams, requiredArtifactProps Requir
 	query := fmt.Sprintf(`items.find(%s)%s`, aqlBody, buildIncludeQueryPart(getQueryReturnFields(specFile, requiredArtifactProps)))
 	query = appendSortQueryPart(specFile, query)
 	query = appendOffsetQueryPart(specFile, query)
-	query = appendLimitQueryPart(specFile, query)
 	query = appendTransitiveQueryPart(specFile, query)
+	query = appendLimitQueryPart(specFile, query)
 	return query
 }
 

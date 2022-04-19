@@ -1,8 +1,8 @@
 package tests
 
 import (
+	"github.com/jfrog/jfrog-client-go/utils/tests"
 	"io/ioutil"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -34,8 +34,8 @@ func flatDownload(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	defer os.RemoveAll(workingDir)
-	downloadPattern := RtTargetRepo + "*"
+	defer tests.RemoveAllAndAssert(t, workingDir)
+	downloadPattern := getRtTargetRepo() + "*"
 	downloadTarget := workingDir + string(filepath.Separator)
 	// Download all from TargetRepo with flat = true
 	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{CommonParams: &utils.CommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
@@ -57,7 +57,7 @@ func flatDownload(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	defer os.RemoveAll(workingDir2)
+	defer tests.RemoveAllAndAssert(t, workingDir2)
 	// Download all from TargetRepo with flat = false
 	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{CommonParams: &utils.CommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: false})
 	if err != nil {
@@ -81,8 +81,8 @@ func recursiveDownload(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	defer os.RemoveAll(workingDir)
-	downloadPattern := RtTargetRepo + "*"
+	defer tests.RemoveAllAndAssert(t, workingDir)
+	downloadPattern := getRtTargetRepo() + "*"
 	downloadTarget := workingDir + string(filepath.Separator)
 	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{CommonParams: &utils.CommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
 	if err != nil {
@@ -103,7 +103,7 @@ func recursiveDownload(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	defer os.RemoveAll(workingDir2)
+	defer tests.RemoveAllAndAssert(t, workingDir2)
 	downloadTarget = workingDir2 + string(filepath.Separator)
 	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{CommonParams: &utils.CommonParams{Pattern: downloadPattern, Recursive: false, Target: downloadTarget}, Flat: true})
 	if err != nil {
@@ -128,8 +128,8 @@ func placeholderDownload(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	defer os.RemoveAll(workingDir)
-	downloadPattern := RtTargetRepo + "(*).in"
+	defer tests.RemoveAllAndAssert(t, workingDir)
+	downloadPattern := getRtTargetRepo() + "(*).in"
 	downloadTarget := workingDir + string(filepath.Separator) + "{1}" + string(filepath.Separator)
 	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{CommonParams: &utils.CommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
 	if err != nil {
@@ -150,8 +150,8 @@ func includeDirsDownload(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	defer os.RemoveAll(workingDir)
-	downloadPattern := RtTargetRepo + "*"
+	defer tests.RemoveAllAndAssert(t, workingDir)
+	downloadPattern := getRtTargetRepo() + "*"
 	downloadTarget := workingDir + string(filepath.Separator)
 	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{CommonParams: &utils.CommonParams{Pattern: downloadPattern, IncludeDirs: true, Recursive: false, Target: downloadTarget}, Flat: false})
 	if err != nil {
@@ -160,7 +160,6 @@ func includeDirsDownload(t *testing.T) {
 	if !fileutils.IsPathExists(filepath.Join(workingDir, "test"), false) {
 		t.Error("Missing test folder")
 	}
-
 	if !fileutils.IsPathExists(filepath.Join(workingDir, "b.in"), false) {
 		t.Error("Missing file b.in")
 	}
@@ -174,8 +173,8 @@ func exclusionsDownload(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	defer os.RemoveAll(workingDir)
-	downloadPattern := RtTargetRepo + "*"
+	defer tests.RemoveAllAndAssert(t, workingDir)
+	downloadPattern := getRtTargetRepo() + "*"
 	downloadTarget := workingDir + string(filepath.Separator)
 	exclusions := []string{"*b.in", "*.tar.gz"}
 	_, err = testsDownloadService.DownloadFiles(services.DownloadParams{CommonParams: &utils.CommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget, Exclusions: exclusions}, Flat: true})
@@ -199,8 +198,8 @@ func explodeArchiveDownload(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	defer os.RemoveAll(workingDir)
-	downloadPattern := RtTargetRepo + "*.tar.gz"
+	defer tests.RemoveAllAndAssert(t, workingDir)
+	downloadPattern := getRtTargetRepo() + "*.tar.gz"
 	downloadTarget := workingDir + string(filepath.Separator)
 	downloadParams := services.DownloadParams{CommonParams: &utils.CommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true, Explode: false}
 	// First we'll download c.tar.gz without extracting it (explode = false by default).
@@ -224,10 +223,7 @@ func explodeArchiveDownload(t *testing.T) {
 	explodeDownloadAndVerify(t, &downloadParams, workingDir)
 
 	// Remove the download target dir.
-	err = os.RemoveAll(workingDir)
-	if err != nil {
-		t.Error(err)
-	}
+	tests.RemoveAllAndAssert(t, workingDir)
 	// Scenario 2: Download c.tar.gz with explode = true, when it does not exist in the target dir.
 	// Artifactory should download the file and extract it.
 	explodeDownloadAndVerify(t, &downloadParams, workingDir)
@@ -251,16 +247,18 @@ func summaryDownload(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	defer os.RemoveAll(workingDir)
+	defer tests.RemoveAllAndAssert(t, workingDir)
 	testsDownloadService.SetSaveSummary(true)
 	defer testsDownloadService.SetSaveSummary(false)
-	downloadPattern := RtTargetRepo + "*.tar.gz"
+	downloadPattern := getRtTargetRepo() + "*.tar.gz"
 	downloadTarget := workingDir + string(filepath.Separator)
 	summary, err := testsDownloadService.DownloadFiles(services.DownloadParams{CommonParams: &utils.CommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
 	if err != nil {
 		t.Error(err)
 	}
-	defer summary.Close()
+	defer func() {
+		assert.NoError(t, summary.Close())
+	}()
 	if summary.TotalSucceeded != 1 {
 		t.Error("Expected to download 1 files.")
 	}
@@ -272,14 +270,14 @@ func summaryDownload(t *testing.T) {
 		transfers = append(transfers, *item)
 	}
 	assert.Len(t, transfers, 1)
-	assert.Equal(t, testsUploadService.ArtDetails.GetUrl()+RtTargetRepo+"c.tar.gz", transfers[0].SourcePath)
+	assert.Equal(t, testsUploadService.ArtDetails.GetUrl()+getRtTargetRepo()+"c.tar.gz", transfers[0].SourcePath)
 	assert.Equal(t, filepath.Join(workingDir, "c.tar.gz"), transfers[0].TargetPath)
 	var artifacts []utils.ArtifactDetails
 	for item := new(utils.ArtifactDetails); summary.ArtifactsDetailsReader.NextRecord(item) == nil; item = new(utils.ArtifactDetails) {
 		artifacts = append(artifacts, *item)
 	}
 	assert.Len(t, artifacts, 1)
-	assert.Equal(t, RtTargetRepo+"c.tar.gz", artifacts[0].ArtifactoryPath)
+	assert.Equal(t, getRtTargetRepo()+"c.tar.gz", artifacts[0].ArtifactoryPath)
 }
 
 // Test downloading of two different files to the same path in the local machine. Only the first of them will be downloaded.
@@ -288,8 +286,8 @@ func duplicateDownload(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	defer os.RemoveAll(workingDir)
-	downloadPattern := RtTargetRepo + "*.in"
+	defer tests.RemoveAllAndAssert(t, workingDir)
+	downloadPattern := getRtTargetRepo() + "*.in"
 	downloadTarget := workingDir + string(filepath.Separator)
 	summary, err := testsDownloadService.DownloadFiles(services.DownloadParams{CommonParams: &utils.CommonParams{Pattern: downloadPattern, Recursive: true, Target: downloadTarget}, Flat: true})
 	if err != nil {

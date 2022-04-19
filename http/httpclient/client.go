@@ -3,16 +3,11 @@ package httpclient
 import (
 	"bytes"
 	"context"
+	//#nosec G505 -- sha1 is supported by Artifactory.
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/jfrog/jfrog-client-go/utils"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	ioutils "github.com/jfrog/jfrog-client-go/utils/io"
-	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
-	"github.com/jfrog/jfrog-client-go/utils/io/httputils"
-	"github.com/jfrog/jfrog-client-go/utils/log"
 	"hash"
 	"io"
 	"io/ioutil"
@@ -21,16 +16,28 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+
+	"github.com/jfrog/jfrog-client-go/utils"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	ioutils "github.com/jfrog/jfrog-client-go/utils/io"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/httputils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type HttpClient struct {
-	client  *http.Client
-	ctx     context.Context
-	retries int
+	client             *http.Client
+	ctx                context.Context
+	retries            int
+	retryWaitMilliSecs int
 }
 
 func (jc *HttpClient) GetRetries() int {
 	return jc.retries
+}
+
+func (jc *HttpClient) GetRetryWaitTime() int {
+	return jc.retryWaitMilliSecs
 }
 
 func (jc *HttpClient) sendGetLeaveBodyOpen(url string, followRedirect bool, httpClientsDetails httputils.HttpClientDetails, logMsgPrefix string) (resp *http.Response, respBody []byte, redirectUrl string, err error) {
@@ -80,45 +87,40 @@ func (jc *HttpClient) SendPut(url string, content []byte, httpClientsDetails htt
 	return
 }
 
-func (jc *HttpClient) newRequest(method, url string, body io.Reader) (*http.Request, error) {
+func (jc *HttpClient) newRequest(method, url string, body io.Reader) (req *http.Request, err error) {
 	if jc.ctx != nil {
-		return http.NewRequestWithContext(jc.ctx, method, url, body)
+		req, err = http.NewRequestWithContext(jc.ctx, method, url, body)
+	} else {
+		req, err = http.NewRequest(method, url, body)
 	}
-	return http.NewRequest(method, url, body)
+	return req, errorutils.CheckError(err)
 }
 
 func (jc *HttpClient) Send(method, url string, content []byte, followRedirect, closeBody bool, httpClientsDetails httputils.HttpClientDetails, logMsgPrefix string) (resp *http.Response, respBody []byte, redirectUrl string, err error) {
-	var req *http.Request
-	log.Debug(fmt.Sprintf("Sending HTTP %s request to: %s", method, url))
-	if content != nil {
-		req, err = jc.newRequest(method, url, bytes.NewBuffer(content))
-	} else {
-		req, err = jc.newRequest(method, url, nil)
-	}
-	if errorutils.CheckError(err) != nil {
-		return nil, nil, "", err
-	}
-
 	retryExecutor := utils.RetryExecutor{
-		MaxRetries:      jc.retries,
-		RetriesInterval: 0,
-		LogMsgPrefix:    logMsgPrefix,
-		ErrorMessage:    fmt.Sprintf("Failure occurred while sending %s request to %s", method, url),
+		MaxRetries:               jc.retries,
+		RetriesIntervalMilliSecs: jc.retryWaitMilliSecs,
+		LogMsgPrefix:             logMsgPrefix,
+		ErrorMessage:             fmt.Sprintf("Failure occurred while sending %s request to %s", method, url),
 		ExecutionHandler: func() (bool, error) {
+			req, err := jc.createReq(method, url, content)
+			if err != nil {
+				return true, err
+			}
 			resp, respBody, redirectUrl, err = jc.doRequest(req, content, followRedirect, closeBody, httpClientsDetails)
 			if err != nil {
 				return true, err
 			}
 			// Response must not be nil
 			if resp == nil {
-				return false, errorutils.CheckError(errors.New(fmt.Sprintf("%sReceived empty response from server", logMsgPrefix)))
+				return false, errorutils.CheckErrorf("%sReceived empty response from server", logMsgPrefix)
 			}
 			// If response-code < 500, should not retry
 			if resp.StatusCode < 500 {
 				return false, nil
 			}
 			// Perform retry
-			log.Warn(fmt.Sprintf("%sThe server response: %s", logMsgPrefix, resp.Status))
+			log.Warn(fmt.Sprintf("%sThe server response: %s\n %s", logMsgPrefix, resp.Status, utils.IndentJson(respBody)))
 			return true, nil
 		},
 	}
@@ -127,7 +129,15 @@ func (jc *HttpClient) Send(method, url string, content []byte, followRedirect, c
 	return
 }
 
+func (jc *HttpClient) createReq(method, url string, content []byte) (req *http.Request, err error) {
+	if content != nil {
+		return jc.newRequest(method, url, bytes.NewBuffer(content))
+	}
+	return jc.newRequest(method, url, nil)
+}
+
 func (jc *HttpClient) doRequest(req *http.Request, content []byte, followRedirect bool, closeBody bool, httpClientsDetails httputils.HttpClientDetails) (resp *http.Response, respBody []byte, redirectUrl string, err error) {
+	log.Debug(fmt.Sprintf("Sending HTTP %s request to: %s", req.Method, req.URL))
 	req.Close = true
 	setAuthentication(req, httpClientsDetails)
 	addUserAgentHeader(req)
@@ -163,7 +173,14 @@ func (jc *HttpClient) doRequest(req *http.Request, content []byte, followRedirec
 		return
 	}
 	if closeBody {
-		defer resp.Body.Close()
+		defer func() {
+			if resp != nil && resp.Body != nil {
+				e := resp.Body.Close()
+				if err == nil {
+					err = errorutils.CheckError(e)
+				}
+			}
+		}()
 		respBody, _ = ioutil.ReadAll(resp.Body)
 	}
 	return
@@ -187,10 +204,10 @@ func setRequestHeaders(httpClientsDetails httputils.HttpClientDetails, size int6
 func (jc *HttpClient) UploadFile(localPath, url, logMsgPrefix string, httpClientsDetails httputils.HttpClientDetails,
 	progress ioutils.ProgressMgr) (resp *http.Response, body []byte, err error) {
 	retryExecutor := utils.RetryExecutor{
-		MaxRetries:      jc.retries,
-		RetriesInterval: 0,
-		ErrorMessage:    fmt.Sprintf("Failure occurred while uploading to %s", url),
-		LogMsgPrefix:    logMsgPrefix,
+		MaxRetries:               jc.retries,
+		RetriesIntervalMilliSecs: jc.retryWaitMilliSecs,
+		ErrorMessage:             fmt.Sprintf("Failure occurred while uploading to %s", url),
+		LogMsgPrefix:             logMsgPrefix,
 		ExecutionHandler: func() (bool, error) {
 			resp, body, err = jc.doUploadFile(localPath, url, httpClientsDetails, progress)
 			if err != nil {
@@ -198,14 +215,14 @@ func (jc *HttpClient) UploadFile(localPath, url, logMsgPrefix string, httpClient
 			}
 			// Response must not be nil
 			if resp == nil {
-				return false, errorutils.CheckError(errors.New(fmt.Sprintf("%sReceived empty response from file upload", logMsgPrefix)))
+				return false, errorutils.CheckErrorf("%sReceived empty response from file upload", logMsgPrefix)
 			}
 			// If response-code < 500, should not retry
 			if resp.StatusCode < 500 {
 				return false, nil
 			}
 			// Perform retry
-			log.Warn(fmt.Sprintf("%sThe server response: %s", logMsgPrefix, resp.Status))
+			log.Warn(fmt.Sprintf("%sThe server response: %s\n %s", logMsgPrefix, resp.Status, utils.IndentJson(body)))
 			return true, nil
 		},
 	}
@@ -215,12 +232,16 @@ func (jc *HttpClient) UploadFile(localPath, url, logMsgPrefix string, httpClient
 }
 
 func (jc *HttpClient) doUploadFile(localPath, url string, httpClientsDetails httputils.HttpClientDetails,
-	progress ioutils.ProgressMgr) (*http.Response, []byte, error) {
+	progress ioutils.ProgressMgr) (resp *http.Response, body []byte, err error) {
 	var file *os.File
-	var err error
 	if localPath != "" {
 		file, err = os.Open(localPath)
-		defer file.Close()
+		defer func() {
+			e := file.Close()
+			if err == nil {
+				err = errorutils.CheckError(e)
+			}
+		}()
 		if errorutils.CheckError(err) != nil {
 			return nil, nil, err
 		}
@@ -247,7 +268,7 @@ func (jc *HttpClient) doUploadFile(localPath, url string, httpClientsDetails htt
 func (jc *HttpClient) UploadFileFromReader(reader io.Reader, url string, httpClientsDetails httputils.HttpClientDetails,
 	size int64) (resp *http.Response, body []byte, err error) {
 	req, err := jc.newRequest("PUT", url, reader)
-	if errorutils.CheckError(err) != nil {
+	if err != nil {
 		return nil, nil, err
 	}
 	req.ContentLength = size
@@ -262,7 +283,17 @@ func (jc *HttpClient) UploadFileFromReader(reader io.Reader, url string, httpCli
 	if errorutils.CheckError(err) != nil {
 		return nil, nil, err
 	}
-	defer resp.Body.Close()
+	if resp != nil && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return nil, nil, errorutils.CheckError(errors.New("Server response: " + resp.Status))
+	}
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			e := resp.Body.Close()
+			if err == nil {
+				err = errorutils.CheckError(e)
+			}
+		}
+	}()
 	body, err = ioutil.ReadAll(resp.Body)
 	if errorutils.CheckError(err) != nil {
 		return nil, nil, err
@@ -305,10 +336,10 @@ func (jc *HttpClient) DownloadFileNoRedirect(downloadPath, localPath, fileName s
 func (jc *HttpClient) downloadFile(downloadFileDetails *DownloadFileDetails, logMsgPrefix string, followRedirect bool,
 	httpClientsDetails httputils.HttpClientDetails, isExplode bool, progress ioutils.ProgressMgr) (resp *http.Response, redirectUrl string, err error) {
 	retryExecutor := utils.RetryExecutor{
-		MaxRetries:      jc.retries,
-		RetriesInterval: 0,
-		ErrorMessage:    fmt.Sprintf("Failure occurred while downloading %s", downloadFileDetails.DownloadPath),
-		LogMsgPrefix:    logMsgPrefix,
+		MaxRetries:               jc.retries,
+		RetriesIntervalMilliSecs: jc.retryWaitMilliSecs,
+		ErrorMessage:             fmt.Sprintf("Failure occurred while downloading %s", downloadFileDetails.DownloadPath),
+		LogMsgPrefix:             logMsgPrefix,
 		ExecutionHandler: func() (bool, error) {
 			resp, redirectUrl, err = jc.doDownloadFile(downloadFileDetails, logMsgPrefix, followRedirect, httpClientsDetails, isExplode, progress)
 			// In case followRedirect is 'false' and doDownloadFile did redirect, an error is returned and redirectUrl
@@ -322,7 +353,7 @@ func (jc *HttpClient) downloadFile(downloadFileDetails *DownloadFileDetails, log
 			}
 			// Response must not be nil
 			if resp == nil {
-				return false, errorutils.CheckError(errors.New(fmt.Sprintf("%sReceived empty response from file download", logMsgPrefix)))
+				return false, errorutils.CheckErrorf("%sReceived empty response from file download", logMsgPrefix)
 			}
 			// If response-code < 500, should not retry
 			if resp.StatusCode < 500 {
@@ -344,8 +375,14 @@ func (jc *HttpClient) doDownloadFile(downloadFileDetails *DownloadFileDetails, l
 	if err != nil {
 		return
 	}
-
-	defer resp.Body.Close()
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			e := resp.Body.Close()
+			if err == nil {
+				err = errorutils.CheckError(e)
+			}
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return resp, redirectUrl, nil
 	}
@@ -363,7 +400,7 @@ func (jc *HttpClient) doDownloadFile(downloadFileDetails *DownloadFileDetails, l
 	return
 }
 
-func saveToFile(downloadFileDetails *DownloadFileDetails, resp *http.Response, progress ioutils.ProgressMgr) error {
+func saveToFile(downloadFileDetails *DownloadFileDetails, resp *http.Response, progress ioutils.ProgressMgr) (err error) {
 	fileName, err := fileutils.CreateFilePath(downloadFileDetails.LocalPath, downloadFileDetails.LocalFileName)
 	if err != nil {
 		return err
@@ -374,7 +411,12 @@ func saveToFile(downloadFileDetails *DownloadFileDetails, resp *http.Response, p
 		return err
 	}
 
-	defer out.Close()
+	defer func() {
+		e := out.Close()
+		if err == nil {
+			err = errorutils.CheckError(e)
+		}
+	}()
 
 	var reader io.Reader
 	if progress != nil {
@@ -386,6 +428,7 @@ func saveToFile(downloadFileDetails *DownloadFileDetails, resp *http.Response, p
 	}
 
 	if len(downloadFileDetails.ExpectedSha1) > 0 {
+		//#nosec G401 -- sha1 is supported by Artifactory.
 		actualSha1 := sha1.New()
 		writer := io.MultiWriter(actualSha1, out)
 
@@ -558,15 +601,21 @@ func (jc *HttpClient) downloadChunksConcurrently(chunksPaths []string, flags Con
 	return respList[len(respList)-1], nil
 }
 
-func mergeChunks(chunksPaths []string, flags ConcurrentDownloadFlags) error {
+func mergeChunks(chunksPaths []string, flags ConcurrentDownloadFlags) (err error) {
 	destFile, err := os.OpenFile(flags.LocalFileName, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
 	if errorutils.CheckError(err) != nil {
 		return err
 	}
-	defer destFile.Close()
+	defer func() {
+		e := destFile.Close()
+		if err == nil {
+			err = errorutils.CheckError(e)
+		}
+	}()
 	var writer io.Writer
 	var actualSha1 hash.Hash
 	if len(flags.ExpectedSha1) > 0 {
+		//#nosec G401 -- Sha1 is supported by Artifactory.
 		actualSha1 = sha1.New()
 		writer = io.MultiWriter(actualSha1, destFile)
 	} else {
@@ -577,7 +626,12 @@ func mergeChunks(chunksPaths []string, flags ConcurrentDownloadFlags) error {
 		if err != nil {
 			return err
 		}
-		defer reader.Close()
+		defer func() {
+			e := reader.Close()
+			if err == nil {
+				err = errorutils.CheckError(e)
+			}
+		}()
 		_, err = io.Copy(writer, reader)
 		if err != nil {
 			return err
@@ -594,10 +648,10 @@ func mergeChunks(chunksPaths []string, flags ConcurrentDownloadFlags) error {
 func (jc *HttpClient) downloadFileRange(flags ConcurrentDownloadFlags, start, end int64, currentSplit int, logMsgPrefix, chunkDownloadPath string,
 	httpClientsDetails httputils.HttpClientDetails, progress ioutils.ProgressMgr, progressId int) (fileName string, resp *http.Response, err error) {
 	retryExecutor := utils.RetryExecutor{
-		MaxRetries:      jc.retries,
-		RetriesInterval: 0,
-		ErrorMessage:    fmt.Sprintf("Failure occurred while downloading part %d of %s", currentSplit, flags.DownloadPath),
-		LogMsgPrefix:    fmt.Sprintf("%s[%s]: ", logMsgPrefix, strconv.Itoa(currentSplit)),
+		MaxRetries:               jc.retries,
+		RetriesIntervalMilliSecs: jc.retryWaitMilliSecs,
+		ErrorMessage:             fmt.Sprintf("Failure occurred while downloading part %d of %s", currentSplit, flags.DownloadPath),
+		LogMsgPrefix:             fmt.Sprintf("%s[%s]: ", logMsgPrefix, strconv.Itoa(currentSplit)),
 		ExecutionHandler: func() (bool, error) {
 			fileName, resp, err = jc.doDownloadFileRange(flags, start, end, currentSplit, logMsgPrefix, chunkDownloadPath, httpClientsDetails, progress, progressId)
 			if err != nil {
@@ -605,7 +659,7 @@ func (jc *HttpClient) downloadFileRange(flags ConcurrentDownloadFlags, start, en
 			}
 			// Response must not be nil
 			if resp == nil {
-				return false, errorutils.CheckError(errors.New(fmt.Sprintf("%s[%s]: Received empty response from file download", logMsgPrefix, strconv.Itoa(currentSplit))))
+				return false, errorutils.CheckErrorf("%s[%s]: Received empty response from file download", logMsgPrefix, strconv.Itoa(currentSplit))
 			}
 			// If response-code < 500, should not retry
 			if resp.StatusCode < 500 {
@@ -628,7 +682,12 @@ func (jc *HttpClient) doDownloadFileRange(flags ConcurrentDownloadFlags, start, 
 	if errorutils.CheckError(err) != nil {
 		return
 	}
-	defer tempFile.Close()
+	defer func() {
+		e := tempFile.Close()
+		if err == nil {
+			err = errorutils.CheckError(e)
+		}
+	}()
 
 	if httpClientsDetails.Headers == nil {
 		httpClientsDetails.Headers = make(map[string]string)
@@ -638,8 +697,14 @@ func (jc *HttpClient) doDownloadFileRange(flags ConcurrentDownloadFlags, start, 
 	if err != nil {
 		return "", nil, err
 	}
-	defer resp.Body.Close()
-
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			e := resp.Body.Close()
+			if err == nil {
+				err = errorutils.CheckError(e)
+			}
+		}
+	}()
 	// Unexpected http response
 	if resp.StatusCode != http.StatusPartialContent {
 		return

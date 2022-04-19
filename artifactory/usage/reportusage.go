@@ -6,11 +6,11 @@ import (
 	"net/http"
 
 	"errors"
+	versionutil "github.com/jfrog/gofrog/version"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	versionutil "github.com/jfrog/jfrog-client-go/utils/version"
 )
 
 const minArtifactoryVersion = "6.9.0"
@@ -19,11 +19,11 @@ const ReportUsagePrefix = "Usage Report: "
 func SendReportUsage(productId, commandName string, serviceManager artifactory.ArtifactoryServicesManager) error {
 	config := serviceManager.GetConfig()
 	if config == nil {
-		return errorutils.CheckError(errors.New(ReportUsagePrefix + "Expected full config, but no configuration exists."))
+		return errorutils.CheckErrorf(ReportUsagePrefix + "Expected full config, but no configuration exists.")
 	}
 	rtDetails := config.GetServiceDetails()
 	if rtDetails == nil {
-		return errorutils.CheckError(errors.New(ReportUsagePrefix + "Artifactory details not configured."))
+		return errorutils.CheckErrorf(ReportUsagePrefix + "Artifactory details not configured.")
 	}
 	url, err := utils.BuildArtifactoryUrl(rtDetails.GetUrl(), "api/system/usage", make(map[string]string))
 	if err != nil {

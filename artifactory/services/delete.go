@@ -1,7 +1,6 @@
 package services
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 
@@ -61,17 +60,27 @@ func (ds *DeleteService) GetPathsToDelete(deleteParams DeleteParams) (resultItem
 		if err != nil {
 			return
 		}
-		defer tempResultItems.Close()
+		defer func() {
+			e := tempResultItems.Close()
+			if err == nil {
+				err = e
+			}
+		}()
 		toBeDeletedDirs, err = removeNotToBeDeletedDirs(deleteParams.GetFile(), ds, tempResultItems)
 		if err != nil {
 			return
 		}
-		// The 'removeNotToBeDeletedDirs' should filter out any folders that should not be deleted, if no action is needed, nil will be return.
+		// The 'removeNotToBeDeletedDirs' should filter out any folders that should not be deleted, if no action is needed, nil will be returned.
 		// As a result, we should keep the flow with tempResultItems reader instead.
 		if toBeDeletedDirs == nil {
 			toBeDeletedDirs = tempResultItems
 		}
-		defer toBeDeletedDirs.Close()
+		defer func() {
+			e := toBeDeletedDirs.Close()
+			if err == nil {
+				err = e
+			}
+		}()
 		resultItems, err = utils.ReduceTopChainDirResult(utils.ResultItem{}, toBeDeletedDirs)
 		if err != nil {
 			return
@@ -108,12 +117,11 @@ func (ds *DeleteService) createFileHandlerFunc(result *utils.Result) fileDeleteH
 				log.Error(err)
 				return err
 			}
-			if resp.StatusCode != http.StatusNoContent {
-				err = errors.New("Artifactory response: " + resp.Status + "\n" + clientutils.IndentJson(body))
+			if err = errorutils.CheckResponseStatus(resp, http.StatusNoContent); err != nil {
+				err = errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body))
 				log.Error(errorutils.CheckError(err))
 				return err
 			}
-
 			result.SuccessCount[threadId]++
 			return nil
 		}
@@ -128,7 +136,7 @@ func (ds *DeleteService) DeleteFiles(deleteItems *content.ContentReader) (int, e
 		defer producerConsumer.Done()
 		for deleteItem := new(utils.ResultItem); deleteItems.NextRecord(deleteItem) == nil; deleteItem = new(utils.ResultItem) {
 			fileDeleteHandlerFunc := ds.createFileHandlerFunc(&result)
-			producerConsumer.AddTaskWithError(fileDeleteHandlerFunc(*deleteItem), errorsQueue.AddError)
+			_, _ = producerConsumer.AddTaskWithError(fileDeleteHandlerFunc(*deleteItem), errorsQueue.AddError)
 		}
 		if err := deleteItems.GetError(); err != nil {
 			errorsQueue.AddError(err)
@@ -185,7 +193,7 @@ func NewDeleteParams() DeleteParams {
 // These directories must be removed, because they include files, which should not be deleted, because of the excludeProps params.
 // These directories must not be deleted from Artifactory.
 // In case of no excludeProps filed in the file spec, nil will be return so all deleteCandidates will get deleted.
-func removeNotToBeDeletedDirs(specFile *utils.CommonParams, ds *DeleteService, deleteCandidates *content.ContentReader) (*content.ContentReader, error) {
+func removeNotToBeDeletedDirs(specFile *utils.CommonParams, ds *DeleteService, deleteCandidates *content.ContentReader) (contentReader *content.ContentReader, err error) {
 	length, err := deleteCandidates.Length()
 	if err != nil || specFile.ExcludeProps == "" || length == 0 {
 		return nil, err
@@ -199,7 +207,10 @@ func removeNotToBeDeletedDirs(specFile *utils.CommonParams, ds *DeleteService, d
 	if len(bufferFiles) > 0 {
 		defer func() {
 			for _, file := range bufferFiles {
-				file.Close()
+				e := file.Close()
+				if err == nil {
+					err = errorutils.CheckError(e)
+				}
 			}
 		}()
 		if err != nil {

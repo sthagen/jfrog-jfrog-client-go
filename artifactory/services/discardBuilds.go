@@ -2,14 +2,13 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
+	buildinfo "github.com/jfrog/build-info-go/entities"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/jfrog/jfrog-client-go/artifactory/buildinfo"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
@@ -71,10 +70,9 @@ func (ds *DiscardBuildsService) DiscardBuilds(params DiscardBuildsParams) error 
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != http.StatusNoContent {
-		return errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + clientutils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusNoContent); err != nil {
+		return errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
-
 	if params.IsAsync() {
 		log.Info("Builds are being discarded asynchronously.")
 		return nil

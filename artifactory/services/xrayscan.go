@@ -2,7 +2,6 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"time"
 
@@ -14,12 +13,18 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
-const SCAN_BUILD_API_URL = "api/xray/scanBuild"
-const XRAY_SCAN_RETRY_CONSECUTIVE_RETRIES = 10           // Retrying to resume the scan 10 times after a stable connection
-const XRAY_SCAN_CONNECTION_TIMEOUT = 90 * time.Second    // Expecting \r\n every 30 seconds
-const XRAY_SCAN_SLEEP_BETWEEN_RETRIES = 15 * time.Second // 15 seconds sleep between retry
-const XRAY_SCAN_STABLE_CONNECTION_WINDOW = 100 * time.Second
-const XRAY_FATAL_FAIL_STATUS = -1
+const apiUri = "api/xray/scanBuild"
+
+// Retrying to resume the scan 10 times after a stable connection
+const consecutiveRetries = 10
+
+// Expecting \r\n every 30 seconds
+const connectionTimeout = 90 * time.Second
+
+// 15 seconds sleep between retry
+const sleepBetweenRetries = 15 * time.Second
+const stableConnectionWindow = 100 * time.Second
+const fatalFailureStatus = -1
 
 type XrayScanService struct {
 	client     *jfroghttpclient.JfrogHttpClient
@@ -30,9 +35,10 @@ func NewXrayScanService(client *jfroghttpclient.JfrogHttpClient) *XrayScanServic
 	return &XrayScanService{client: client}
 }
 
+// Deprecated legacy scan build. The new build scan command is in "/xray/commands/scan/buildscan"
 func (ps *XrayScanService) ScanBuild(scanParams XrayScanParams) ([]byte, error) {
 	url := ps.ArtDetails.GetUrl()
-	requestFullUrl, err := utils.BuildArtifactoryUrl(url, SCAN_BUILD_API_URL, make(map[string]string))
+	requestFullUrl, err := utils.BuildArtifactoryUrl(url, apiUri, make(map[string]string))
 	if err != nil {
 		return []byte{}, err
 	}
@@ -49,10 +55,10 @@ func (ps *XrayScanService) ScanBuild(scanParams XrayScanParams) ([]byte, error) 
 	}
 
 	connection := httpclient.RetryableConnection{
-		ReadTimeout:            XRAY_SCAN_CONNECTION_TIMEOUT,
-		RetriesNum:             XRAY_SCAN_RETRY_CONSECUTIVE_RETRIES,
-		StableConnectionWindow: XRAY_SCAN_STABLE_CONNECTION_WINDOW,
-		SleepBetweenRetries:    XRAY_SCAN_SLEEP_BETWEEN_RETRIES,
+		ReadTimeout:            connectionTimeout,
+		RetriesNum:             consecutiveRetries,
+		StableConnectionWindow: stableConnectionWindow,
+		SleepBetweenRetries:    sleepBetweenRetries,
 		ConnectHandler: func() (*http.Response, error) {
 			return ps.execScanRequest(requestFullUrl, requestContent)
 		},
@@ -73,7 +79,7 @@ func isFatalScanError(errResp *errorResponse) bool {
 		return false
 	}
 	for _, v := range errResp.Errors {
-		if v.Status == XRAY_FATAL_FAIL_STATUS {
+		if v.Status == fatalFailureStatus {
 			return true
 		}
 	}
@@ -95,7 +101,7 @@ func checkForXrayResponseError(content []byte, ignoreFatalError bool) error {
 		// fatal error should be interpreted as no errors so no more retries will accrue
 		return nil
 	}
-	return errorutils.CheckError(errors.New("Server response: " + string(content)))
+	return errorutils.CheckErrorf("Server response: " + string(content))
 }
 
 func (ps *XrayScanService) execScanRequest(url string, content []byte) (*http.Response, error) {
@@ -116,7 +122,7 @@ func (ps *XrayScanService) execScanRequest(url string, content []byte) (*http.Re
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		err = errorutils.CheckError(errors.New("Server response: " + resp.Status))
+		err = errorutils.CheckErrorf("Server response: " + resp.Status)
 	}
 	return resp, err
 }

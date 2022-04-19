@@ -3,7 +3,8 @@ package artifactory
 import (
 	"io"
 
-	"github.com/jfrog/jfrog-client-go/artifactory/buildinfo"
+	buildinfo "github.com/jfrog/build-info-go/entities"
+
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	_go "github.com/jfrog/jfrog-client-go/artifactory/services/go"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -20,13 +21,17 @@ type ArtifactoryServicesManager interface {
 	CreateRemoteRepositoryWithParams(params services.RemoteRepositoryBaseParams) error
 	CreateVirtualRepository() *services.VirtualRepositoryService
 	CreateVirtualRepositoryWithParams(params services.VirtualRepositoryBaseParams) error
+	CreateFederatedRepository() *services.FederatedRepositoryService
+	CreateFederatedRepositoryWithParams(params services.FederatedRepositoryBaseParams) error
 	UpdateLocalRepository() *services.LocalRepositoryService
 	UpdateRemoteRepository() *services.RemoteRepositoryService
 	UpdateVirtualRepository() *services.VirtualRepositoryService
+	UpdateFederatedRepository() *services.FederatedRepositoryService
 	DeleteRepository(repoKey string) error
 	GetRepository(repoKey string, repoDetails interface{}) error
 	GetAllRepositories() (*[]services.RepositoryDetails, error)
 	GetAllRepositoriesFiltered(params services.RepositoriesFilterParams) (*[]services.RepositoryDetails, error)
+	IsRepoExists(repoKey string) (bool, error)
 	CreatePermissionTarget(params services.PermissionTargetParams) error
 	UpdatePermissionTarget(params services.PermissionTargetParams) error
 	DeletePermissionTarget(permissionTargetName string) error
@@ -79,6 +84,9 @@ type ArtifactoryServicesManager interface {
 	CreateUser(params services.UserParams) error
 	UpdateUser(params services.UserParams) error
 	DeleteUser(name string) error
+	ConvertLocalToFederatedRepository(repoKey string) error
+	TriggerFederatedRepositoryFullSyncAll(repoKey string) error
+	TriggerFederatedRepositoryFullSyncMirror(repoKey string, mirrorUrl string) error
 }
 
 // By using this struct, you have the option of overriding only some of the ArtifactoryServicesManager
@@ -111,6 +119,14 @@ func (esm *EmptyArtifactoryServicesManager) CreateVirtualRepositoryWithParams(pa
 	panic("Failed: Method is not implemented")
 }
 
+func (esm *EmptyArtifactoryServicesManager) CreateFederatedRepository() *services.FederatedRepositoryService {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) CreateFederatedRepositoryWithParams(params services.FederatedRepositoryBaseParams) error {
+	panic("Failed: Method is not implemented")
+}
+
 func (esm *EmptyArtifactoryServicesManager) UpdateLocalRepository() *services.LocalRepositoryService {
 	panic("Failed: Method is not implemented")
 }
@@ -123,11 +139,19 @@ func (esm *EmptyArtifactoryServicesManager) UpdateVirtualRepository() *services.
 	panic("Failed: Method is not implemented")
 }
 
+func (esm *EmptyArtifactoryServicesManager) UpdateFederatedRepository() *services.FederatedRepositoryService {
+	panic("Failed: Method is not implemented")
+}
+
 func (esm *EmptyArtifactoryServicesManager) DeleteRepository(repoKey string) error {
 	panic("Failed: Method is not implemented")
 }
 
 func (esm *EmptyArtifactoryServicesManager) GetRepository(repoKey string, repoDetails interface{}) error {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) IsRepoExists(repoKey string) (bool, error) {
 	panic("Failed: Method is not implemented")
 }
 
@@ -176,10 +200,6 @@ func (esm *EmptyArtifactoryServicesManager) DeleteFiles(reader *content.ContentR
 }
 
 func (esm *EmptyArtifactoryServicesManager) ReadRemoteFile(readPath string) (io.ReadCloser, error) {
-	panic("Failed: Method is not implemented")
-}
-
-func (esm *EmptyArtifactoryServicesManager) initDownloadService() *services.DownloadService {
 	panic("Failed: Method is not implemented")
 }
 
@@ -348,6 +368,18 @@ func (esm *EmptyArtifactoryServicesManager) UpdateGroup(params services.GroupPar
 }
 
 func (esm *EmptyArtifactoryServicesManager) DeleteGroup(name string) error {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) ConvertLocalToFederatedRepository(repoKey string) error {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) TriggerFederatedRepositoryFullSyncAll(repoKey string) error {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) TriggerFederatedRepositoryFullSyncMirror(repoKey string, mirrorUrl string) error {
 	panic("Failed: Method is not implemented")
 }
 

@@ -74,11 +74,11 @@ func assertIsSortLimitSpecBool(actual, expected bool, t *testing.T) {
 
 func TestGetQueryReturnFields(t *testing.T) {
 	artifactoryParams := CommonParams{}
-	minimalFields := []string{"name", "repo", "path", "actual_md5", "actual_sha1", "size", "type", "created", "modified"}
+	minimalFields := []string{"name", "repo", "path", "actual_md5", "actual_sha1", "sha256", "size", "type", "created", "modified"}
 
 	assertEqualFieldsList(getQueryReturnFields(&artifactoryParams, ALL), append(minimalFields, "property"), t)
 	assertEqualFieldsList(getQueryReturnFields(&artifactoryParams, SYMLINK), append(minimalFields, "property"), t)
-	assertEqualFieldsList(getQueryReturnFields(&artifactoryParams, NONE), append(minimalFields), t)
+	assertEqualFieldsList(getQueryReturnFields(&artifactoryParams, NONE), minimalFields, t)
 
 	artifactoryParams.SortBy = []string{"Vava"}
 	assertEqualFieldsList(getQueryReturnFields(&artifactoryParams, NONE), append(minimalFields, "Vava"), t)
@@ -116,6 +116,19 @@ func TestBuildSortBody(t *testing.T) {
 func assertSortBody(actual, expected string, t *testing.T) {
 	if actual != expected {
 		t.Error("The function buildSortQueryPart expected to return the string:\n'" + expected + "'.\nbut returned:\n'" + actual + "'.")
+	}
+}
+
+func TestCreateAqlQueryForLatestCreated(t *testing.T) {
+	actual := CreateAqlQueryForLatestCreated("repo", "name")
+	expected := `items.find({` +
+		`"repo": "repo",` +
+		`"path": {"$match": "name"}` +
+		`})` +
+		`.sort({"$desc":["created"]})` +
+		`.limit(1)`
+	if actual != expected {
+		t.Error("The function CreateAqlQueryForLatestCreated expected to return the string:\n'" + expected + "'.\nbut returned:\n'" + actual + "'.")
 	}
 }
 

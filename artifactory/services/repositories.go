@@ -2,7 +2,6 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -29,13 +28,22 @@ func NewRepositoriesService(client *jfroghttpclient.JfrogHttpClient) *Repositori
 // The function expects to get the repo key and a pointer to a param struct that will be filled up.
 // The param struct should contain the desired param's fields corresponded to the Artifactory REST API, such as RepositoryDetails, LocalRepositoryBaseParams, etc.
 func (rs *RepositoriesService) Get(repoKey string, repoDetails interface{}) error {
-	log.Info("Getting repository '" + repoKey + "' details ...")
+	log.Debug("Getting repository '" + repoKey + "' details ...")
 	body, err := rs.sendGet(apiRepositories + "/" + repoKey)
 	if err != nil {
 		return err
 	}
 	err = json.Unmarshal(body, repoDetails)
 	return errorutils.CheckError(err)
+}
+
+func (rs *RepositoriesService) IsExists(repoKey string) (exists bool, err error) {
+	httpClientsDetails := rs.ArtDetails.CreateHttpClientDetails()
+	resp, _, _, err := rs.client.SendGet(rs.ArtDetails.GetUrl()+apiRepositories+"/"+repoKey, true, &httpClientsDetails)
+	if err != nil {
+		return false, errorutils.CheckError(err)
+	}
+	return resp.StatusCode == http.StatusOK, nil
 }
 
 func (rs *RepositoriesService) GetAll() (*[]RepositoryDetails, error) {
@@ -60,8 +68,8 @@ func (rs *RepositoriesService) sendGet(api string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + clientutils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return nil, errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
 	log.Debug("Artifactory response:", resp.Status)
 	log.Debug("Done getting repository details.")
@@ -80,6 +88,10 @@ func (rs *RepositoriesService) CreateLocal(params LocalRepositoryBaseParams) err
 	return rs.createRepo(params, params.Key)
 }
 
+func (rs *RepositoriesService) CreateFederated(params FederatedRepositoryBaseParams) error {
+	return rs.createRepo(params, params.Key)
+}
+
 func (rs *RepositoriesService) createRepo(params interface{}, repoName string) error {
 	content, err := json.Marshal(params)
 	if errorutils.CheckError(err) != nil {
@@ -91,11 +103,11 @@ func (rs *RepositoriesService) createRepo(params interface{}, repoName string) e
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + clientutils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
 	log.Debug("Artifactory response:", resp.Status)
-	log.Info(fmt.Sprintf("Repository %q created.", repoName))
+	log.Info(fmt.Sprintf("Repository %s%s created.", rs.ArtDetails.GetUrl(), repoName))
 	return nil
 }
 

@@ -1,15 +1,18 @@
 package services
 
 import (
-	"errors"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 
+	biutils "github.com/jfrog/build-info-go/utils"
+	"github.com/jfrog/gofrog/version"
+
+	"github.com/jfrog/build-info-go/entities"
+
 	"github.com/jfrog/jfrog-client-go/http/httpclient"
-	"github.com/jfrog/jfrog-client-go/utils/version"
 
 	"github.com/jfrog/gofrog/parallel"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -21,7 +24,6 @@ import (
 	clientio "github.com/jfrog/jfrog-client-go/utils/io"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
-	"github.com/jfrog/jfrog-client-go/utils/io/fileutils/checksum"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -36,10 +38,14 @@ type DownloadService struct {
 	filesTransfersWriter *content.ContentWriter
 	// A ContentWriter of ArtifactDetails structs. Used only if saveSummary is set to true.
 	artifactsDetailsWriter *content.ContentWriter
+	// This map is used for validating that a downloaded release bundle is signed with a given GPG public key. This is done for security reasons.
+	// The key is the release bundle name and version separated by "/" and the value is it's RbGpgValidator.
+	rbGpgValidationMap map[string]*utils.RbGpgValidator
 }
 
 func NewDownloadService(artDetails auth.ServiceDetails, client *jfroghttpclient.JfrogHttpClient) *DownloadService {
-	return &DownloadService{artDetails: &artDetails, client: client}
+	rbGpgValidationMap := make(map[string]*utils.RbGpgValidator)
+	return &DownloadService{artDetails: &artDetails, client: client, rbGpgValidationMap: rbGpgValidationMap}
 }
 
 func (ds *DownloadService) GetArtifactoryDetails() auth.ServiceDetails {
@@ -110,6 +116,26 @@ func (ds *DownloadService) DownloadFiles(downloadParams ...DownloadParams) (*uti
 	return ds.getOperationSummary(totalSuccess, <-expectedChan-totalSuccess), e
 }
 
+func (ds *DownloadService) gpgValidateReleaseBundle(bundleParam, publicKeyFilePath string) error {
+	// Check if the release bundle has already been validated.
+	if ds.rbGpgValidationMap[bundleParam] != nil {
+		return nil
+	}
+	bundleName, bundleVersion, err := utils.ParseNameAndVersion(bundleParam, false)
+	if bundleName == "" || err != nil {
+		return err
+	}
+	gpgValidator := utils.NewRbGpgValidator()
+	gpgValidator.SetRbName(bundleName).SetRbVersion(bundleVersion).SetClient(ds.client).SetAtrifactoryDetails(ds.artDetails).SetPublicKey(publicKeyFilePath)
+	err = gpgValidator.Validate()
+	if err != nil {
+		return err
+	}
+	// Add the validated release bundle to the map.
+	ds.rbGpgValidationMap[bundleParam] = gpgValidator
+	return nil
+}
+
 func (ds *DownloadService) prepareTasks(producer parallel.Runner, expectedChan chan int, successCounters []int, errorsQueue *clientutils.ErrorsQueue, downloadParamsSlice ...DownloadParams) {
 	go func() {
 		defer producer.Done()
@@ -129,6 +155,13 @@ func (ds *DownloadService) prepareTasks(producer parallel.Runner, expectedChan c
 		// When encountering an error, log and move to next group.
 		for _, downloadParams := range downloadParamsSlice {
 			utils.DisableTransitiveSearchIfNotAllowed(downloadParams.CommonParams, artifactoryVersion)
+			if downloadParams.PublicGpgKey != "" {
+				err = ds.gpgValidateReleaseBundle(downloadParams.GetBundle(), downloadParams.GetPublicGpgKey())
+				if err != nil {
+					errorsQueue.AddError(err)
+					return
+				}
+			}
 			var reader *content.ContentReader
 			// Create handler function for the current group.
 			fileHandlerFunc := ds.createFileHandlerFunc(downloadParams, successCounters)
@@ -154,7 +187,11 @@ func (ds *DownloadService) prepareTasks(producer parallel.Runner, expectedChan c
 			}
 			// Produce download tasks for the download consumers.
 			totalTasks += ds.produceTasks(reader, downloadParams, producer, fileHandlerFunc, errorsQueue)
-			reader.Close()
+			err = reader.Close()
+			if err != nil {
+				errorsQueue.AddError(err)
+				return
+			}
 		}
 	}()
 }
@@ -210,10 +247,18 @@ func (ds *DownloadService) produceTasks(reader *content.ContentReader, downloadP
 			Flat:         flat,
 		}
 		if resultItem.Type != "folder" {
+			if len(ds.rbGpgValidationMap) != 0 {
+				// Gpg validation to the downloaded artifact
+				err = rbGpgValidate(ds.rbGpgValidationMap, downloadParams.GetBundle(), resultItem)
+				if err != nil {
+					errorsQueue.AddError(err)
+					return tasksCount
+				}
+			}
 			// Add a task. A task is a function of type TaskFunc which later on will be executed by other go routine, the communication is done using channels.
 			// The second argument is an error handling func in case the taskFunc return an error.
 			tasksCount++
-			producer.AddTaskWithError(fileHandler(tempData), errorsQueue.AddError)
+			_, _ = producer.AddTaskWithError(fileHandler(tempData), errorsQueue.AddError)
 			// We don't want to create directories which are created explicitly by download files when CommonParams.IncludeDirs is used.
 			alreadyCreatedDirs[resultItem.Path] = true
 		} else {
@@ -226,6 +271,19 @@ func (ds *DownloadService) produceTasks(reader *content.ContentReader, downloadP
 	}
 	addCreateDirsTasks(directoriesDataKeys, alreadyCreatedDirs, producer, fileHandler, directoriesData, errorsQueue, flat)
 	return tasksCount
+}
+
+func rbGpgValidate(rbGpgValidationMap map[string]*utils.RbGpgValidator, bundle string, resultItem *utils.ResultItem) error {
+	artifactPath := path.Join(resultItem.Repo, resultItem.Path, resultItem.Name)
+	rbGpgValidator := rbGpgValidationMap[bundle]
+	if rbGpgValidator == nil {
+		return errorutils.CheckErrorf("release bundle validator for '%s' was not found unexpectedly. This may be caused by a bug", artifactPath)
+	}
+	err := rbGpgValidator.VerifyArtifact(artifactPath, resultItem.Sha256)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Extract for the aqlResultItem the directory path, store the path the directoriesDataKeys and in the directoriesData map.
@@ -254,13 +312,12 @@ func addCreateDirsTasks(directoriesDataKeys []string, alreadyCreatedDirs map[str
 
 			// Some directories were created due to file download when we aren't in flat download flow.
 			if isFlat {
-				producer.AddTaskWithError(fileHandler(directoriesData[v]), errorsQueue.AddError)
+				_, _ = producer.AddTaskWithError(fileHandler(directoriesData[v]), errorsQueue.AddError)
 			} else if !alreadyCreatedDirs[v] {
-				producer.AddTaskWithError(fileHandler(directoriesData[v]), errorsQueue.AddError)
+				_, _ = producer.AddTaskWithError(fileHandler(directoriesData[v]), errorsQueue.AddError)
 			}
 		}
 	}
-	return
 }
 
 func (ds *DownloadService) performTasks(consumer parallel.Runner, errorsQueue *clientutils.ErrorsQueue) error {
@@ -289,7 +346,7 @@ func createDependencyTransferDetails(downloadPath, localPath, localFileName stri
 func createDependencyArtifactDetails(resultItem utils.ResultItem) utils.ArtifactDetails {
 	fileInfo := utils.ArtifactDetails{
 		ArtifactoryPath: resultItem.GetItemRelativePath(),
-		Checksums: utils.Checksums{
+		Checksums: entities.Checksum{
 			Sha1: resultItem.Actual_Sha1,
 			Md5:  resultItem.Actual_Md5,
 		},
@@ -370,23 +427,28 @@ func removeIfSymlink(localSymlinkPath string) error {
 	return nil
 }
 
-func createLocalSymlink(localPath, localFileName, symlinkArtifact string, symlinkChecksum bool, symlinkContentChecksum string, logMsgPrefix string) error {
+func createLocalSymlink(localPath, localFileName, symlinkArtifact string, symlinkChecksum bool, symlinkContentChecksum string, logMsgPrefix string) (err error) {
 	if symlinkChecksum && symlinkContentChecksum != "" {
 		if !fileutils.IsPathExists(symlinkArtifact, false) {
-			return errorutils.CheckError(errors.New("Symlink validation failed, target doesn't exist: " + symlinkArtifact))
+			return errorutils.CheckErrorf("Symlink validation failed, target doesn't exist: " + symlinkArtifact)
 		}
 		file, err := os.Open(symlinkArtifact)
 		if err = errorutils.CheckError(err); err != nil {
 			return err
 		}
-		defer file.Close()
-		checksumInfo, err := checksum.Calc(file, checksum.SHA1)
-		if err != nil {
+		defer func() {
+			e := file.Close()
+			if err == nil {
+				err = errorutils.CheckError(e)
+			}
+		}()
+		checksumInfo, err := biutils.CalcChecksums(file, biutils.SHA1)
+		if err = errorutils.CheckError(err); err != nil {
 			return err
 		}
-		sha1 := checksumInfo[checksum.SHA1]
+		sha1 := checksumInfo[biutils.SHA1]
 		if sha1 != symlinkContentChecksum {
-			return errorutils.CheckError(errors.New("Symlink validation failed for target: " + symlinkArtifact))
+			return errorutils.CheckErrorf("Symlink validation failed for target: " + symlinkArtifact)
 		}
 	}
 	localSymlinkPath := filepath.Join(localPath, localFileName)
@@ -423,11 +485,11 @@ func getArtifactPropertyByKey(properties []utils.Property, key string) string {
 }
 
 func getArtifactSymlinkPath(properties []utils.Property) string {
-	return getArtifactPropertyByKey(properties, utils.ARTIFACTORY_SYMLINK)
+	return getArtifactPropertyByKey(properties, utils.ArtifactorySymlink)
 }
 
 func getArtifactSymlinkChecksum(properties []utils.Property) string {
-	return getArtifactPropertyByKey(properties, utils.SYMLINK_SHA1)
+	return getArtifactPropertyByKey(properties, utils.SymlinkSha1)
 }
 
 type fileHandlerFunc func(DownloadData) parallel.TaskFunc
@@ -530,6 +592,7 @@ type DownloadParams struct {
 	Explode         bool
 	MinSplitSize    int64
 	SplitCount      int
+	PublicGpgKey    string
 }
 
 func (ds *DownloadParams) IsFlat() bool {
@@ -550,6 +613,10 @@ func (ds *DownloadParams) IsSymlink() bool {
 
 func (ds *DownloadParams) ValidateSymlinks() bool {
 	return ds.ValidateSymlink
+}
+
+func (ds *DownloadParams) GetPublicGpgKey() string {
+	return ds.PublicGpgKey
 }
 
 func NewDownloadParams() DownloadParams {

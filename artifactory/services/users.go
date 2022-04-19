@@ -2,13 +2,12 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
-	"github.com/jfrog/jfrog-client-go/utils"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/httputils"
 )
@@ -16,6 +15,7 @@ import (
 type UserParams struct {
 	UserDetails     User
 	ReplaceIfExists bool
+	ClearGroups     bool
 }
 
 func NewUserParams() UserParams {
@@ -24,16 +24,16 @@ func NewUserParams() UserParams {
 
 // application/vnd.org.jfrog.artifactory.security.User+json
 type User struct {
-	Name                     string   `json:"name,omitempty" csv:"username,omitempty"`
-	Email                    string   `json:"email,omitempty" csv:"email,omitempty"`
-	Password                 string   `json:"password,omitempty" csv:"password,omitempty"`
-	Admin                    bool     `json:"admin,omitempty" csv:"admin,omitempty"`
-	ProfileUpdatable         bool     `json:"profileUpdatable,omitempty" csv:"profileUpdatable,omitempty"`
-	DisableUIAccess          bool     `json:"disableUIAccess,omitempty" csv:"disableUIAccess,omitempty"`
-	InternalPasswordDisabled bool     `json:"internalPasswordDisabled,omitempty" csv:"internalPasswordDisabled,omitempty"`
-	LastLoggedIn             string   `json:"lastLoggedIn,omitempty" csv:"lastLoggedIn,omitempty"`
-	Realm                    string   `json:"realm,omitempty" csv:"realm,omitempty"`
-	Groups                   []string `json:"groups,omitempty" csv:"groups,omitempty"`
+	Name                     string    `json:"name,omitempty" csv:"username,omitempty"`
+	Email                    string    `json:"email,omitempty" csv:"email,omitempty"`
+	Password                 string    `json:"password,omitempty" csv:"password,omitempty"`
+	Admin                    *bool     `json:"admin,omitempty" csv:"admin,omitempty"`
+	ProfileUpdatable         *bool     `json:"profileUpdatable,omitempty" csv:"profileUpdatable,omitempty"`
+	DisableUIAccess          *bool     `json:"disableUIAccess,omitempty" csv:"disableUIAccess,omitempty"`
+	InternalPasswordDisabled *bool     `json:"internalPasswordDisabled,omitempty" csv:"internalPasswordDisabled,omitempty"`
+	LastLoggedIn             string    `json:"lastLoggedIn,omitempty" csv:"lastLoggedIn,omitempty"`
+	Realm                    string    `json:"realm,omitempty" csv:"realm,omitempty"`
+	Groups                   *[]string `json:"groups,omitempty" csv:"groups,omitempty"`
 }
 
 type UserService struct {
@@ -60,8 +60,8 @@ func (us *UserService) GetUser(params UserParams) (u *User, err error) {
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return nil, errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
 	var user User
 	if err := json.Unmarshal(body, &user); err != nil {
@@ -77,8 +77,8 @@ func (us *UserService) GetAllUsers() ([]*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return nil, errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
 	var users []*User
 	if err := json.Unmarshal(body, &users); err != nil {
@@ -95,7 +95,7 @@ func (us *UserService) CreateUser(params UserParams) error {
 			return err
 		}
 		if user != nil {
-			return errorutils.CheckError(fmt.Errorf("user '%s' already exists", user.Name))
+			return errorutils.CheckErrorf("user '%s' already exists", user.Name)
 		}
 	}
 	url, content, httpDetails, err := us.createOrUpdateUserRequest(params.UserDetails)
@@ -106,13 +106,16 @@ func (us *UserService) CreateUser(params UserParams) error {
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK, http.StatusCreated); err != nil {
+		return errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
 	return nil
 }
 
 func (us *UserService) UpdateUser(params UserParams) error {
+	if params.ClearGroups {
+		params.UserDetails.Groups = &[]string{}
+	}
 	url, content, httpDetails, err := us.createOrUpdateUserRequest(params.UserDetails)
 	if err != nil {
 		return err
@@ -121,8 +124,8 @@ func (us *UserService) UpdateUser(params UserParams) error {
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK, http.StatusCreated); err != nil {
+		return errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
 	return nil
 }
@@ -146,12 +149,15 @@ func (us *UserService) createOrUpdateUserRequest(user User) (url string, request
 func (us *UserService) DeleteUser(name string) error {
 	httpDetails := us.ArtDetails.CreateHttpClientDetails()
 	url := fmt.Sprintf("%sapi/security/users/%s", us.ArtDetails.GetUrl(), name)
-	resp, _, err := us.client.SendDelete(url, nil, &httpDetails)
-	if resp == nil {
-		return errorutils.CheckError(fmt.Errorf("no response provided (including status code)"))
+	resp, body, err := us.client.SendDelete(url, nil, &httpDetails)
+	if err != nil {
+		return err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return errorutils.CheckError(errors.New("Artifactory response: " + resp.Status))
+	if resp == nil {
+		return errorutils.CheckErrorf("no response provided (including status code)")
+	}
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
 	return err
 }

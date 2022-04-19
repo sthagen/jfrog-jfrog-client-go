@@ -2,15 +2,15 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
+	"net/http"
+	"strconv"
+	"strings"
+
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"net/http"
-	"strconv"
-	"strings"
 )
 
 type SourcesService struct {
@@ -23,9 +23,9 @@ func NewSourcesService(client *jfroghttpclient.JfrogHttpClient) *SourcesService 
 }
 
 const (
-	DefaultPipelinesFileFilter = "pipelines.yml"
-	SourcesRestApi             = "api/v1/pipelinesources/"
-	checkIfSourceExistsMethod  = "checkIfPipelineSourceAlreadyExists"
+	DefaultPipelinesFileFilter        = "pipelines.yml"
+	SourcesRestApi                    = "api/v1/pipelinesources/"
+	sourceAlreadyExistsResponseString = "source already exists"
 )
 
 func (ss *SourcesService) AddSource(projectIntegrationId int, repositoryFullName, branch, fileFilter string) (id int, err error) {
@@ -57,9 +57,9 @@ func (ss *SourcesService) doAddSource(source Source) (id int, err error) {
 	if err != nil {
 		return -1, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		err := errors.New("Pipelines response: " + resp.Status + "\n" + utils.IndentJson(body))
-		if resp.StatusCode == http.StatusNotFound && strings.Contains(string(body), checkIfSourceExistsMethod) {
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		err := errorutils.GenerateResponseError(resp.Status, utils.IndentJson(body))
+		if resp.StatusCode == http.StatusNotFound && strings.Contains(string(body), sourceAlreadyExistsResponseString) {
 			return -1, errorutils.CheckError(&SourceAlreadyExistsError{InnerError: err})
 		}
 		return -1, errorutils.CheckError(err)
@@ -77,8 +77,8 @@ func (ss *SourcesService) GetSource(sourceId int) (*Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, errorutils.CheckError(errors.New("Pipelines response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return nil, errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, utils.IndentJson(body)))
 	}
 	source := &Source{}
 	err = json.Unmarshal(body, source)
@@ -91,8 +91,8 @@ func (ss *SourcesService) DeleteSource(sourceId int) error {
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return errorutils.CheckError(errors.New("Pipelines response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, utils.IndentJson(body)))
 	}
 	return nil
 }

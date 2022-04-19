@@ -1,7 +1,6 @@
 package fileutils
 
 import (
-	"errors"
 	"io/ioutil"
 	"os"
 	"path"
@@ -13,15 +12,15 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const (
+var (
 	tempPrefix = "jfrog.cli.temp."
+
+	// Max temp file age in hours
+	maxFileAge = 24.0
+
+	// Path to the root temp dir
+	tempDirBase string
 )
-
-// Max temp file age in hours
-var maxFileAge = 24.0
-
-// Path to the root temp dir
-var tempDirBase string
 
 func init() {
 	tempDirBase = os.TempDir()
@@ -31,15 +30,14 @@ func init() {
 // Set tempDirPath to the created directory path.
 func CreateTempDir() (string, error) {
 	if tempDirBase == "" {
-		return "", errorutils.CheckError(errors.New("Temp dir cannot be created in an empty base dir."))
+		return "", errorutils.CheckErrorf("Temp dir cannot be created in an empty base dir.")
 	}
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-	path, err := ioutil.TempDir(tempDirBase, tempPrefix+"-"+timestamp+"-")
+	dirPath, err := ioutil.TempDir(tempDirBase, tempPrefix+"-"+timestamp+"-")
 	if err != nil {
 		return "", errorutils.CheckError(err)
 	}
-
-	return path, nil
+	return dirPath, nil
 }
 
 // Change the containing directory of temp dir.
@@ -52,16 +50,23 @@ func RemoveTempDir(dirPath string) error {
 	if err != nil {
 		return err
 	}
-	if exists {
-		return os.RemoveAll(dirPath)
+	if !exists {
+		return nil
 	}
-	return nil
+	err = os.RemoveAll(dirPath)
+	if err == nil {
+		return nil
+	}
+	// Sometimes removing the directory fails (in Windows) because it's locked by another process.
+	// That's a known issue, but its cause is unknown (golang.org/issue/30789).
+	// In this case, we'll only remove the contents of the directory, and let CleanOldDirs() remove the directory itself at a later time.
+	return RemoveDirContents(dirPath)
 }
 
 // Create a new temp file named "tempPrefix+timeStamp".
 func CreateTempFile() (*os.File, error) {
 	if tempDirBase == "" {
-		return nil, errorutils.CheckError(errors.New("Temp File cannot be created in an empty base dir."))
+		return nil, errorutils.CheckErrorf("Temp File cannot be created in an empty base dir.")
 	}
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 	fd, err := ioutil.TempFile(tempDirBase, tempPrefix+"-"+timestamp+"-")
@@ -99,13 +104,13 @@ func CleanOldDirs() error {
 func extractTimestamp(item string) (time.Time, error) {
 	// Get timestamp from file/dir.
 	endTimestampIdx := strings.LastIndex(item, "-")
-	beginingTimestampIdx := strings.LastIndex(item[:endTimestampIdx], "-")
-	timestampStr := item[beginingTimestampIdx+1 : endTimestampIdx]
+	beginningTimestampIdx := strings.LastIndex(item[:endTimestampIdx], "-")
+	timestampStr := item[beginningTimestampIdx+1 : endTimestampIdx]
 	// Convert to int.
-	timeStampint, err := strconv.ParseInt(timestampStr, 10, 64)
+	timeStampInt, err := strconv.ParseInt(timestampStr, 10, 64)
 	if err != nil {
 		return time.Time{}, errorutils.CheckError(err)
 	}
 	// Convert to time type.
-	return time.Unix(timeStampint, 0), nil
+	return time.Unix(timeStampInt, 0), nil
 }

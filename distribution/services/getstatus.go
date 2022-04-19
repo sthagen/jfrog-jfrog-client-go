@@ -36,10 +36,10 @@ func (ds *DistributionStatusService) GetStatus(distributionStatusParams Distribu
 func (ds *DistributionStatusService) checkParameters(distributionStatusParams DistributionStatusParams) error {
 	var err error
 	if distributionStatusParams.Name == "" && (distributionStatusParams.Version != "" || distributionStatusParams.TrackerId != "") {
-		err = errors.New("Missing distribution name parameter")
+		err = errors.New("missing distribution name parameter")
 	}
 	if distributionStatusParams.Version == "" && distributionStatusParams.TrackerId != "" {
-		err = errors.New("Missing distribution version parameter")
+		err = errors.New("missing distribution version parameter")
 	}
 	return errorutils.CheckError(err)
 }
@@ -52,8 +52,8 @@ func (ds *DistributionStatusService) execGetStatus(name, version, trackerId stri
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, errorutils.CheckError(errors.New("Distribution response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return nil, errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, utils.IndentJson(body)))
 	}
 	log.Debug("Distribution response: ", resp.Status)
 	log.Debug(utils.IndentJson(body))

@@ -1104,3 +1104,190 @@ const VulnerableXrayScanResponse = `{
   ]
 }
 `
+
+const VulnerabilityRequestResponse = `
+{
+  "report_id": 777,
+  "status": "pending"
+}
+`
+
+const VulnerabilityReportStatusResponse = `
+{
+  "id": 301,
+  "name": "test-generic",
+  "report_type": "vulnerability",
+  "status": "completed",
+  "total_artifacts": 4,
+  "num_of_processed_artifacts": 4,
+  "progress": 100,
+  "number_of_rows": 64,
+  "start_time": "2021-09-03T21:17:41Z",
+  "end_time": "2021-09-03T21:17:42Z",
+  "author": "test"
+}
+`
+
+const VulnerabilityReportDeleteResponse = `
+{
+  "info": "report deleted successfully"
+}
+`
+
+const VulnerabilityReportDetailsResponse = `
+{
+  "total_rows": 70,
+  "rows": [
+    {
+      "cves": [
+        {
+          "cve": "CVE-2021-37136"
+        },
+        {
+          "cvss_v2_score": 7.1,
+          "cvss_v2_vector": "CVSS:2.0/AV:N/AC:M/Au:N/C:N/I:N/A:C",
+          "cvss_v3_score": 7.5,
+          "cvss_v3_vector": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+        }
+      ],
+      "cvss2_max_score": 7.1,
+      "cvss3_max_score": 7.5,
+      "summary": "Netty Bzip2Decoder Class Missing Decompressed Data Allocation Limitation Memory Exhaustion Remote DoS",
+      "severity": "High",
+      "severity_source": "CVSS V3 from RBS",
+      "vulnerable_component": "gav://io.netty:netty-codec:4.1.66.Final",
+      "impacted_artifact": "docker://elasticsearch/7.15.0-test2:latest",
+      "impact_path": [
+        "docker://elasticsearch/7.15.0-test2:latest",
+        "generic://sha256:a53372ba228046f81171efd357179b7b02a95acccee17925e3d0295829cb42ea/sha256__a53372ba228046f81171efd357179b7b02a95acccee17925e3d0295829cb42ea.tar.gz",
+        "generic://sha256:e1a7a6f8262f89cad679f309ec7875c9a995099ee0fee1a1380ee71692657a4c/elasticsearch-sql-cli-7.15.0.jar",
+        "gav://io.netty:netty-codec:4.1.66.Final"
+      ],
+      "path": "forks-release-local/elasticsearch/7.15.0-test2/latest/",
+      "fixed_versions": [
+        "4.1.68.Final"
+      ],
+      "published": "2021-09-12T14:10:55Z",
+      "issue_id": "XRAY-184735",
+      "package_type": "maven",
+      "provider": "JFrog",
+      "description": "Netty contains a flaw in the Bzip2Decoder class that is triggered as memory allocations for decompressed data can't be properly limited. This may allow a remote attacker to exhaust available memory resources and cause a denial of service.",
+      "references": [
+        "https://github.com/netty/netty/commit/41d3d61a61608f2223bb364955ab2045dd5e4020",
+        "https://github.com/netty/netty/security/advisories/GHSA-grg4-wf29-r9vv",
+        "http://cve.mitre.org/cgi-bin/cvename.cgi?name=2021-37136"
+      ]
+    },
+    {
+      "cves": [
+        {
+          "cve": "CVE-2021-37136"
+        },
+        {
+          "cvss_v2_score": 7.1,
+          "cvss_v2_vector": "CVSS:2.0/AV:N/AC:M/Au:N/C:N/I:N/A:C",
+          "cvss_v3_score": 7.5,
+          "cvss_v3_vector": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+        }
+      ],
+      "cvss2_max_score": 7.1,
+      "cvss3_max_score": 7.5,
+      "summary": "Netty Bzip2Decoder Class Missing Decompressed Data Allocation Limitation Memory Exhaustion Remote DoS",
+      "severity": "High",
+      "severity_source": "CVSS V3 from RBS",
+      "vulnerable_component": "gav://io.netty:netty-codec:4.1.66.Final",
+      "impacted_artifact": "docker://elasticsearch/7.15.0-test2:latest",
+      "impact_path": [
+        "docker://elasticsearch/7.15.0-test2:latest",
+        "generic://sha256:a53372ba228046f81171efd357179b7b02a95acccee17925e3d0295829cb42ea/sha256__a53372ba228046f81171efd357179b7b02a95acccee17925e3d0295829cb42ea.tar.gz",
+        "gav://io.netty:netty-codec:4.1.66.Final"
+      ],
+      "path": "forks-release-local/elasticsearch/7.15.0-test2/latest/",
+      "fixed_versions": [
+        "4.1.68.Final"
+      ],
+      "published": "2021-09-12T14:10:55Z",
+      "issue_id": "XRAY-184735",
+      "package_type": "maven",
+      "provider": "JFrog",
+      "description": "Netty contains a flaw in the Bzip2Decoder class that is triggered as memory allocations for decompressed data can't be properly limited. This may allow a remote attacker to exhaust available memory resources and cause a denial of service.",
+      "references": [
+        "https://github.com/netty/netty/commit/41d3d61a61608f2223bb364955ab2045dd5e4020",
+        "https://github.com/netty/netty/security/advisories/GHSA-grg4-wf29-r9vv",
+        "http://cve.mitre.org/cgi-bin/cvename.cgi?name=2021-37136"
+      ]
+    }
+  ]
+}
+`
+
+const VulnerableXraySummaryArtifactResponse = `
+{
+  "artifacts": [
+    {
+      "general": {
+        "component_id": "foo/bar:84a28a42",
+        "name": "foo/bar:84a28a42",
+        "path": "default/foo/bar/84a28a42/",
+        "pkg_type": "Docker",
+        "sha256": "c255cbe29c2da2935b4433a54e4ce6a3710490ee1d2c47bc68a7fa1732a3be24"
+      },
+      "issues": [
+        {
+          "issue_id": "XRAY-189376",
+          "summary": "ImportedSymbols in debug/macho (for Open or OpenFat) in Go before 1.16.10 and 1.17.x before 1.17.3 Accesses a Memory Location After the End of a Buffer, aka an out-of-bounds slice situation.",
+          "description": "ImportedSymbols in debug/macho (for Open or OpenFat) in Go before 1.16.10 and 1.17.x before 1.17.3 Accesses a Memory Location After the End of a Buffer, aka an out-of-bounds slice situation.",
+          "issue_type": "security",
+          "severity": "High",
+          "provider": "JFrog",
+          "cves": [
+            {
+              "cve": "CVE-2021-41771",
+              "cvss_v2": "5.0/CVSS:2.0/AV:N/AC:L/Au:N/C:N/I:N/A:P",
+              "cvss_v3": "7.5/CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "cwe": [
+                "CWE-119"
+              ]
+            }
+          ],
+          "created": "2021-11-09T00:00:00.702Z",
+          "impact_path": [
+            "default/foo/bar/84a28a42/sha256__fc66940af1388789585cf7128aeb3edc547723e307b53e59b75ad2797ac1c765.tar.gz/bar/github.com/lang/go/go"
+          ],
+          "components": [
+            {
+              "component_id": "github.com/golang/go",
+              "fixed_versions": [
+                "[1.16.10]",
+                "[1.17.3]"
+              ]
+            },
+            {
+              "component_id": "github.com/golang/go/src",
+              "fixed_versions": [
+                "[1.16.10]",
+                "[1.17.3]"
+              ]
+            }
+          ],
+          "component_physical_paths": [
+            "sha256__fc66940af1388789585cf7128aeb3edc547723e307b53e59b75ad2797ac1c765.tar.gz/bar/github.com/lang/go/go"
+          ]
+        }
+      ],
+      "licenses": [
+        {
+          "components": [
+            "go://github.com/golang/go:1.15.8"
+          ],
+          "full_name": "Unknown license",
+          "more_info_url": [
+            "Unknown link"
+          ],
+          "name": "Unknown"
+        }
+      ]
+    }
+  ]
+}
+`

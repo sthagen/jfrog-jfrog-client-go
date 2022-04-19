@@ -2,6 +2,7 @@ package errorutils
 
 import (
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 )
@@ -13,6 +14,13 @@ var CheckError = func(err error) error {
 	return err
 }
 
+func CheckErrorf(format string, a ...interface{}) error {
+	if len(a) > 0 {
+		return CheckError(fmt.Errorf(format, a...))
+	}
+	return CheckError(errors.New(format))
+}
+
 // Check expected status codes and return error if needed
 func CheckResponseStatus(resp *http.Response, expectedStatusCodes ...int) error {
 	for _, statusCode := range expectedStatusCodes {
@@ -22,5 +30,9 @@ func CheckResponseStatus(resp *http.Response, expectedStatusCodes ...int) error 
 	}
 
 	errorBody, _ := ioutil.ReadAll(resp.Body)
-	return errors.New(resp.Status + " " + string(errorBody))
+	return GenerateResponseError(resp.Status, string(errorBody))
+}
+
+func GenerateResponseError(status, body string) error {
+	return errors.New("Server response: " + status + "\n" + body)
 }

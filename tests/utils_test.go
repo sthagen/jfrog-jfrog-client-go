@@ -5,18 +5,26 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/buger/jsonparser"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	clientTestUtils "github.com/jfrog/jfrog-client-go/utils/tests"
+
+	buildinfo "github.com/jfrog/build-info-go/entities"
+
+	accessAuth "github.com/jfrog/jfrog-client-go/access/auth"
+	accessServices "github.com/jfrog/jfrog-client-go/access/services"
 	pipelinesAuth "github.com/jfrog/jfrog-client-go/pipelines/auth"
 	pipelinesServices "github.com/jfrog/jfrog-client-go/pipelines/services"
 
-	"github.com/jfrog/jfrog-client-go/artifactory/buildinfo"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils/tests"
 
 	artifactoryAuth "github.com/jfrog/jfrog-client-go/artifactory/auth"
@@ -36,84 +44,100 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var TestArtifactory *bool
-var TestDistribution *bool
-var TestXray *bool
-var TestPipelines *bool
-var RtUrl *string
-var DistUrl *string
-var XrayUrl *string
-var PipelinesUrl *string
-var RtUser *string
-var RtPassword *string
-var RtApiKey *string
-var RtSshKeyPath *string
-var RtSshPassphrase *string
-var RtAccessToken *string
-var PipelinesAccessToken *string
-var PipelinesVcsToken *string
-var PipelinesVcsRepoFullPath *string
-var PipelinesVcsBranch *string
+var (
+	TestArtifactory          *bool
+	TestDistribution         *bool
+	TestXray                 *bool
+	TestPipelines            *bool
+	TestAccess               *bool
+	TestRepositories         *bool
+	RtUrl                    *string
+	DistUrl                  *string
+	XrayUrl                  *string
+	PipelinesUrl             *string
+	RtUser                   *string
+	RtPassword               *string
+	RtApiKey                 *string
+	RtSshKeyPath             *string
+	RtSshPassphrase          *string
+	RtAccessToken            *string
+	PipelinesAccessToken     *string
+	PipelinesVcsToken        *string
+	PipelinesVcsRepoFullPath *string
+	PipelinesVcsBranch       *string
+	AccessUrl                *string
+	AccessToken              *string
+	ciRunId                  *string
 
-// Artifactory services
-var testsUploadService *services.UploadService
-var testsSearchService *services.SearchService
-var testsDeleteService *services.DeleteService
-var testsDownloadService *services.DownloadService
-var testsSecurityService *services.SecurityService
-var testsCreateLocalRepositoryService *services.LocalRepositoryService
-var testsCreateRemoteRepositoryService *services.RemoteRepositoryService
-var testsCreateVirtualRepositoryService *services.VirtualRepositoryService
-var testsUpdateLocalRepositoryService *services.LocalRepositoryService
-var testsUpdateRemoteRepositoryService *services.RemoteRepositoryService
-var testsUpdateVirtualRepositoryService *services.VirtualRepositoryService
-var testsDeleteRepositoryService *services.DeleteRepositoryService
-var testsRepositoriesService *services.RepositoriesService
-var testsCreateReplicationService *services.CreateReplicationService
-var testsUpdateReplicationService *services.UpdateReplicationService
-var testsReplicationGetService *services.GetReplicationService
-var testsReplicationDeleteService *services.DeleteReplicationService
-var testsPermissionTargetService *services.PermissionTargetService
-var testUserService *services.UserService
-var testGroupService *services.GroupService
-var testBuildInfoService *services.BuildInfoService
+	// Artifactory services
+	testsUploadService                    *services.UploadService
+	testsSearchService                    *services.SearchService
+	testsDeleteService                    *services.DeleteService
+	testsDownloadService                  *services.DownloadService
+	testsSecurityService                  *services.SecurityService
+	testsCreateLocalRepositoryService     *services.LocalRepositoryService
+	testsCreateRemoteRepositoryService    *services.RemoteRepositoryService
+	testsCreateVirtualRepositoryService   *services.VirtualRepositoryService
+	testsCreateFederatedRepositoryService *services.FederatedRepositoryService
+	testsUpdateLocalRepositoryService     *services.LocalRepositoryService
+	testsUpdateRemoteRepositoryService    *services.RemoteRepositoryService
+	testsUpdateVirtualRepositoryService   *services.VirtualRepositoryService
+	testsUpdateFederatedRepositoryService *services.FederatedRepositoryService
+	testsDeleteRepositoryService          *services.DeleteRepositoryService
+	testsRepositoriesService              *services.RepositoriesService
+	testsCreateReplicationService         *services.CreateReplicationService
+	testsUpdateReplicationService         *services.UpdateReplicationService
+	testsReplicationGetService            *services.GetReplicationService
+	testsReplicationDeleteService         *services.DeleteReplicationService
+	testsPermissionTargetService          *services.PermissionTargetService
+	testUserService                       *services.UserService
+	testGroupService                      *services.GroupService
+	testBuildInfoService                  *services.BuildInfoService
+	testsFederationService                *services.FederationService
 
-// Distribution services
-var testsBundleSetSigningKeyService *distributionServices.SetSigningKeyService
-var testsBundleCreateService *distributionServices.CreateReleaseBundleService
-var testsBundleUpdateService *distributionServices.UpdateReleaseBundleService
-var testsBundleSignService *distributionServices.SignBundleService
-var testsBundleDistributeService *distributionServices.DistributeReleaseBundleService
-var testsBundleDistributionStatusService *distributionServices.DistributionStatusService
-var testsBundleDeleteLocalService *distributionServices.DeleteLocalReleaseBundleService
-var testsBundleDeleteRemoteService *distributionServices.DeleteReleaseBundleService
+	// Distribution services
+	testsBundleSetSigningKeyService      *distributionServices.SetSigningKeyService
+	testsBundleCreateService             *distributionServices.CreateReleaseBundleService
+	testsBundleUpdateService             *distributionServices.UpdateReleaseBundleService
+	testsBundleSignService               *distributionServices.SignBundleService
+	testsBundleDistributeService         *distributionServices.DistributeReleaseBundleService
+	testsBundleDistributionStatusService *distributionServices.DistributionStatusService
+	testsBundleDeleteLocalService        *distributionServices.DeleteLocalReleaseBundleService
+	testsBundleDeleteRemoteService       *distributionServices.DeleteReleaseBundleService
 
-// Xray Services
-var testsXrayWatchService *xrayServices.WatchService
-var testsXrayPolicyService *xrayServices.PolicyService
-var testXrayBinMgrService *xrayServices.BinMgrService
+	// Xray Services
+	testsXrayWatchService  *xrayServices.WatchService
+	testsXrayPolicyService *xrayServices.PolicyService
+	testXrayBinMgrService  *xrayServices.BinMgrService
 
-// Pipelines Services
-var testsPipelinesIntegrationsService *pipelinesServices.IntegrationsService
-var testsPipelinesSourcesService *pipelinesServices.SourcesService
+	// Pipelines Services
+	testsPipelinesIntegrationsService *pipelinesServices.IntegrationsService
+	testsPipelinesSourcesService      *pipelinesServices.SourcesService
 
-var timestamp = time.Now().Unix()
-var trueValue = true
-var falseValue = false
+	// Access Services
+	testsAccessProjectService *accessServices.ProjectService
+
+	timestamp    = time.Now().Unix()
+	timestampStr = strconv.FormatInt(timestamp, 10)
+	trueValue    = true
+	falseValue   = false
+
+	// Tests configuration
+	RtTargetRepo = "client-go"
+)
 
 const (
-	RtTargetRepo                     = "jfrog-client-tests-repo1/"
-	SpecsTestRepositoryConfig        = "specs_test_repository_config.json"
-	RepoDetailsUrl                   = "api/repositories/"
 	HttpClientCreationFailureMessage = "Failed while attempting to create HttpClient: %s"
-	RepoKeyPrefixForRepoServiceTest  = "jf-client-go-test"
 )
 
 func init() {
+	ciRunId = flag.String("ci.runId", "", "A unique identifier used as a suffix to create repositories in the tests")
 	TestArtifactory = flag.Bool("test.artifactory", false, "Test Artifactory")
 	TestDistribution = flag.Bool("test.distribution", false, "Test distribution")
 	TestXray = flag.Bool("test.xray", false, "Test xray")
 	TestPipelines = flag.Bool("test.pipelines", false, "Test pipelines")
+	TestAccess = flag.Bool("test.access", false, "Test access")
+	TestRepositories = flag.Bool("test.repositories", false, "Test repositories in Artifactory")
 	RtUrl = flag.String("rt.url", "", "Artifactory url")
 	DistUrl = flag.String("ds.url", "", "Distribution url")
 	XrayUrl = flag.String("xr.url", "", "Xray url")
@@ -128,6 +152,23 @@ func init() {
 	PipelinesVcsToken = flag.String("pipe.vcsToken", "", "Vcs token for Pipelines tests")
 	PipelinesVcsRepoFullPath = flag.String("pipe.vcsRepo", "", "Vcs full repo path for Pipelines tests")
 	PipelinesVcsBranch = flag.String("pipe.vcsBranch", "", "Vcs branch for Pipelines tests")
+	AccessUrl = flag.String("access.url", "", "Access url")
+	AccessToken = flag.String("access.token", "", "Access token")
+}
+
+func getRtTargetRepoKey() string {
+	return RtTargetRepo + "-" + getRunId()
+}
+
+func getRtTargetRepo() string {
+	return getRtTargetRepoKey() + "/"
+}
+
+func getRunId() string {
+	if ciRunId != nil && *ciRunId != "" {
+		return *ciRunId + "-" + timestampStr
+	}
+	return timestampStr
 }
 
 func createArtifactorySecurityManager() {
@@ -267,6 +308,22 @@ func createArtifactoryUpdateVirtualRepositoryManager() {
 	testsUpdateVirtualRepositoryService.ArtDetails = artDetails
 }
 
+func createArtifactoryCreateFederatedRepositoryManager() {
+	artDetails := GetRtDetails()
+	client, err := createJfrogHttpClient(&artDetails)
+	failOnHttpClientCreation(err)
+	testsCreateFederatedRepositoryService = services.NewFederatedRepositoryService(client, false)
+	testsCreateFederatedRepositoryService.ArtDetails = artDetails
+}
+
+func createArtifactoryUpdateFederatedRepositoryManager() {
+	artDetails := GetRtDetails()
+	client, err := createJfrogHttpClient(&artDetails)
+	failOnHttpClientCreation(err)
+	testsUpdateFederatedRepositoryService = services.NewFederatedRepositoryService(client, true)
+	testsUpdateFederatedRepositoryService.ArtDetails = artDetails
+}
+
 func createArtifactoryDeleteRepositoryManager() {
 	artDetails := GetRtDetails()
 	client, err := createJfrogHttpClient(&artDetails)
@@ -321,6 +378,14 @@ func createArtifactoryPermissionTargetManager() {
 	failOnHttpClientCreation(err)
 	testsPermissionTargetService = services.NewPermissionTargetService(client)
 	testsPermissionTargetService.ArtDetails = artDetails
+}
+
+func createArtifactoryFederationManager() {
+	artDetails := GetRtDetails()
+	client, err := createJfrogHttpClient(&artDetails)
+	failOnHttpClientCreation(err)
+	testsFederationService = services.NewFederationService(client)
+	testsFederationService.ArtDetails = artDetails
 }
 
 func createJfrogHttpClient(artDetails *auth.ServiceDetails) (*jfroghttpclient.JfrogHttpClient, error) {
@@ -452,10 +517,10 @@ func uploadDummyFile(t *testing.T) {
 		t.Error(err)
 		t.FailNow()
 	}
-	defer os.RemoveAll(workingDir)
-	pattern := FixWinPath(filepath.Join(workingDir, "*"))
+	defer clientTestUtils.RemoveAllAndAssert(t, workingDir)
+	pattern := filepath.Join(workingDir, "*")
 	up := services.NewUploadParams()
-	up.CommonParams = &utils.CommonParams{Pattern: pattern, Recursive: true, Target: RtTargetRepo + "test/"}
+	up.CommonParams = &utils.CommonParams{Pattern: pattern, Recursive: true, Target: getRtTargetRepo() + "test/"}
 	up.Flat = true
 	summary, err := testsUploadService.UploadFiles(up)
 	if summary.TotalSucceeded != 1 {
@@ -467,9 +532,10 @@ func uploadDummyFile(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	up.CommonParams = &utils.CommonParams{Pattern: pattern, Recursive: true, Target: RtTargetRepo + "b.in"}
+	up.CommonParams = &utils.CommonParams{Pattern: pattern, Recursive: true, Target: getRtTargetRepo() + "b.in"}
 	up.Flat = true
 	summary, err = testsUploadService.UploadFiles(up)
+	assert.NoError(t, err)
 	if summary.TotalSucceeded != 1 {
 		t.Error("Expected to upload 1 file.")
 	}
@@ -481,7 +547,7 @@ func uploadDummyFile(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	up.CommonParams = &utils.CommonParams{Pattern: archivePath, Recursive: true, Target: RtTargetRepo}
+	up.CommonParams = &utils.CommonParams{Pattern: archivePath, Recursive: true, Target: getRtTargetRepo()}
 	up.Flat = true
 	summary, err = testsUploadService.UploadFiles(up)
 	if summary.TotalSucceeded != 1 {
@@ -496,13 +562,15 @@ func uploadDummyFile(t *testing.T) {
 }
 
 func artifactoryCleanup(t *testing.T) {
-	params := &utils.CommonParams{Pattern: RtTargetRepo}
+	params := &utils.CommonParams{Pattern: getRtTargetRepo()}
 	toDelete, err := testsDeleteService.GetPathsToDelete(services.DeleteParams{CommonParams: params})
 	if err != nil {
 		t.Error(err)
 		t.FailNow()
 	}
-	defer toDelete.Close()
+	defer func() {
+		assert.NoError(t, toDelete.Close())
+	}()
 	NumberOfItemToDelete, err := toDelete.Length()
 	if err != nil {
 		t.Error(err)
@@ -519,69 +587,33 @@ func artifactoryCleanup(t *testing.T) {
 	}
 }
 
-func createReposIfNeeded() error {
-	if !(*TestArtifactory || *TestDistribution || *TestXray) {
+func createRepo() error {
+	if !(*TestArtifactory || *TestDistribution || *TestXray || *TestRepositories) {
 		return nil
 	}
 	var err error
-	var repoConfig string
-	repo := RtTargetRepo
-	if strings.HasSuffix(repo, "/") {
-		repo = repo[0:strings.LastIndex(repo, "/")]
-	}
-	if !isRepoExist(repo) {
-		repoConfig = filepath.Join(getTestDataPath(), "reposconfig", SpecsTestRepositoryConfig)
-		err = execCreateRepoRest(repoConfig, repo)
-		if err != nil {
-			log.Error(err)
-			return err
-		}
+	repoKey := getRtTargetRepoKey()
+	glp := services.NewGenericLocalRepositoryParams()
+	glp.Key = repoKey
+	setLocalRepositoryBaseParams(&glp.LocalRepositoryBaseParams, true)
+	err = testsCreateLocalRepositoryService.Generic(glp)
+	if err != nil {
+		log.Error(err)
+		return err
 	}
 	return nil
 }
 
-func isRepoExist(repoName string) bool {
-	artDetails := GetRtDetails()
-	artHttpDetails := artDetails.CreateHttpClientDetails()
-	client, err := httpclient.ClientBuilder().Build()
+func teardownIntegrationTests() {
+	if !(*TestArtifactory || *TestDistribution || *TestXray || *TestRepositories) {
+		return
+	}
+	repo := getRtTargetRepoKey()
+	err := testsDeleteRepositoryService.Delete(repo)
 	if err != nil {
-		log.Error(err)
+		fmt.Printf("teardownIntegrationTests failed for:" + err.Error())
 		os.Exit(1)
 	}
-	resp, _, _, err := client.SendGet(artDetails.GetUrl()+RepoDetailsUrl+repoName, true, artHttpDetails, "")
-	if err != nil {
-		log.Error(err)
-		os.Exit(1)
-	}
-
-	if resp.StatusCode != http.StatusBadRequest {
-		return true
-	}
-	return false
-}
-
-func execCreateRepoRest(repoConfig, repoName string) error {
-	content, err := ioutil.ReadFile(repoConfig)
-	if err != nil {
-		return err
-	}
-	artDetails := GetRtDetails()
-	artHttpDetails := artDetails.CreateHttpClientDetails()
-
-	artHttpDetails.Headers = map[string]string{"Content-Type": "application/json"}
-	client, err := httpclient.ClientBuilder().Build()
-	if err != nil {
-		return err
-	}
-	resp, _, err := client.SendPut(artDetails.GetUrl()+"api/repositories/"+repoName, content, artHttpDetails, "")
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return errors.New("Fail to create repository. Reason local repository with key: " + repoName + " already exist\n")
-	}
-	log.Info("Repository", repoName, "created.")
-	return nil
 }
 
 func getTestDataPath() string {
@@ -589,23 +621,149 @@ func getTestDataPath() string {
 	return filepath.Join(dir, "testdata")
 }
 
-func FixWinPath(filePath string) string {
-	fixedPath := strings.Replace(filePath, "\\", "\\\\", -1)
-	return fixedPath
+func setRepositoryBaseParams(params *services.RepositoryBaseParams, isUpdate bool) {
+	if !isUpdate {
+		params.ProjectKey = ""
+		params.Environments = nil
+		params.Description = strings.ToTitle(params.PackageType) + " Repo for jfrog-client-go local-repository-test"
+		params.Notes = "Repo has been created"
+		params.IncludesPattern = "dir1/*"
+		params.ExcludesPattern = "dir2/*"
+		params.RepoLayoutRef = "simple-default"
+	} else {
+		params.ProjectKey = ""
+		params.Environments = nil
+		params.Description += " - Updated"
+		params.Notes = "Repo has been updated"
+		params.IncludesPattern = ""
+		params.ExcludesPattern = ""
+		params.RepoLayoutRef = "build-default"
+	}
 }
 
-func getRepoConfig(repoKey string) (body []byte, err error) {
+func setAdditionalRepositoryBaseParams(params *services.AdditionalRepositoryBaseParams, isUpdate bool) {
+	if !isUpdate {
+		params.BlackedOut = &trueValue
+		params.XrayIndex = &trueValue
+		params.PropertySets = []string{"artifactory"}
+		params.DownloadRedirect = &trueValue
+		params.PriorityResolution = &trueValue
+	} else {
+		params.BlackedOut = &falseValue
+		params.XrayIndex = &falseValue
+		params.PropertySets = nil
+		params.DownloadRedirect = &falseValue
+		params.PriorityResolution = &falseValue
+	}
+}
+
+func setCargoRepositoryParams(params *services.CargoRepositoryParams, isUpdate bool) {
+	if !isUpdate {
+		params.CargoAnonymousAccess = &trueValue
+	} else {
+		params.CargoAnonymousAccess = &falseValue
+	}
+}
+
+func setDebianRepositoryParams(params *services.DebianRepositoryParams, isUpdate bool) {
+	if !isUpdate {
+		params.DebianTrivialLayout = &trueValue
+		params.OptionalIndexCompressionFormats = []string{"bz2", "lzma"}
+	} else {
+		params.DebianTrivialLayout = &falseValue
+		params.OptionalIndexCompressionFormats = nil
+	}
+}
+
+func setDockerRepositoryParams(params *services.DockerRepositoryParams, isUpdate bool) {
+	if !isUpdate {
+		params.DockerApiVersion = "V1"
+		params.MaxUniqueTags = 18
+		params.BlockPushingSchema1 = &falseValue
+		params.DockerTagRetention = 10
+	} else {
+		params.DockerApiVersion = "V2"
+		params.MaxUniqueTags = 36
+		params.BlockPushingSchema1 = &trueValue
+		params.DockerTagRetention = 0
+	}
+}
+
+func setJavaPackageManagersRepositoryParams(params *services.JavaPackageManagersRepositoryParams, isUpdate bool) {
+	if !isUpdate {
+		params.MaxUniqueSnapshots = 18
+		params.HandleReleases = &trueValue
+		params.HandleSnapshots = &trueValue
+		params.SuppressPomConsistencyChecks = &trueValue
+		params.SnapshotVersionBehavior = "non-unique"
+		params.ChecksumPolicyType = "server-generated-checksums"
+	} else {
+		params.MaxUniqueSnapshots = 36
+		params.HandleReleases = &falseValue
+		params.HandleSnapshots = &falseValue
+		params.SuppressPomConsistencyChecks = &falseValue
+		params.SnapshotVersionBehavior = "unique"
+		params.ChecksumPolicyType = "client-checksums"
+	}
+}
+
+func setNugetRepositoryParams(params *services.NugetRepositoryParams, isUpdate bool) {
+	if !isUpdate {
+		params.ForceNugetAuthentication = &trueValue
+		params.MaxUniqueSnapshots = 24
+	} else {
+		params.ForceNugetAuthentication = &falseValue
+		params.MaxUniqueSnapshots = 18
+	}
+}
+
+func setRpmRepositoryParams(params *services.RpmRepositoryParams, isUpdate bool) {
+	if !isUpdate {
+		params.YumRootDepth = 6
+		params.CalculateYumMetadata = &trueValue
+		params.EnableFileListsIndexing = &trueValue
+		params.YumGroupFileNames = "filename"
+	} else {
+		params.YumRootDepth = 18
+		params.CalculateYumMetadata = &falseValue
+		params.EnableFileListsIndexing = &falseValue
+		params.YumGroupFileNames = ""
+	}
+}
+
+func getRepoConfig(repoKey string) ([]byte, error) {
 	artDetails := GetRtDetails()
 	artHttpDetails := artDetails.CreateHttpClientDetails()
 	client, err := httpclient.ClientBuilder().Build()
 	if err != nil {
-		return
+		return nil, err
 	}
 	resp, body, _, err := client.SendGet(artDetails.GetUrl()+"api/repositories/"+repoKey, false, artHttpDetails, "")
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return
+	if err != nil {
+		return nil, err
 	}
-	return
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return nil, errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
+	}
+	return body, nil
+}
+
+func isEnterprisePlus() (bool, error) {
+	artDetails := GetRtDetails()
+	artHttpDetails := artDetails.CreateHttpClientDetails()
+	client, err := httpclient.ClientBuilder().Build()
+	if err != nil {
+		return false, err
+	}
+	resp, body, _, err := client.SendGet(artDetails.GetUrl()+"api/system/license", false, artHttpDetails, "")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return false, err
+	}
+	value, err := jsonparser.GetString(body, "type")
+	if err != nil {
+		return false, err
+	}
+	return value == "Enterprise Plus", nil
 }
 
 func createRepoConfigValidationFunc(repoKey string, expectedConfig interface{}) clientutils.ExecutionHandlerFunc {
@@ -626,10 +784,23 @@ func createRepoConfigValidationFunc(repoKey string, expectedConfig interface{}) 
 			return false, errors.New("failed unmarshalling expected config for " + repoKey)
 		}
 		for key, expectedValue := range expectedConfigMap {
+			// The password field may be encrypted and won't match the value set, need to handle this during validation
+			if key == "password" {
+				continue
+			}
+			// Download Redirect is only supported on Enterprise Plus. Expect false otherwise.
+			if key == "downloadRedirect" {
+				eplus, err := isEnterprisePlus()
+				if err != nil {
+					return false, err
+				}
+				if !eplus {
+					expectedValue = false
+				}
+			}
 			if !assert.ObjectsAreEqual(confMap[key], expectedValue) {
 				errMsg := fmt.Sprintf("config validation for %s failed. key: %s expected: %s actual: %s", repoKey, key, expectedValue, confMap[key])
 				return true, errors.New(errMsg)
-
 			}
 		}
 		return false, nil
@@ -638,10 +809,11 @@ func createRepoConfigValidationFunc(repoKey string, expectedConfig interface{}) 
 
 func validateRepoConfig(t *testing.T, repoKey string, params interface{}) {
 	retryExecutor := &clientutils.RetryExecutor{
-		MaxRetries:       12,
-		RetriesInterval:  10,
-		ErrorMessage:     "Waiting for Artifactory to evaluate repository operation...",
-		ExecutionHandler: createRepoConfigValidationFunc(repoKey, params),
+		MaxRetries: 12,
+		// RetriesIntervalMilliSecs in milliseconds
+		RetriesIntervalMilliSecs: 10 * 1000,
+		ErrorMessage:             "Waiting for Artifactory to evaluate repository operation...",
+		ExecutionHandler:         createRepoConfigValidationFunc(repoKey, params),
 	}
 	err := retryExecutor.Execute()
 	assert.NoError(t, err)
@@ -654,7 +826,7 @@ func deleteRepo(t *testing.T, repoKey string) {
 
 func GenerateRepoKeyForRepoServiceTest() string {
 	timestamp++
-	return fmt.Sprintf("%s-%d", RepoKeyPrefixForRepoServiceTest, timestamp)
+	return fmt.Sprintf("%s-%d", getRtTargetRepoKey(), timestamp)
 }
 
 func getRepo(t *testing.T, repoKey string) *services.RepositoryDetails {
@@ -673,6 +845,12 @@ func getAllRepos(t *testing.T, repoType, packageType string) *[]services.Reposit
 	return data
 }
 
+func isRepoExists(t *testing.T, repoKey string) bool {
+	exists, err := testsRepositoriesService.IsExists(repoKey)
+	assert.NoError(t, err, "Failed to check if "+repoKey+" exists")
+	return exists
+}
+
 func createDummyBuild(buildName string) error {
 	dataArtifactoryBuild := &buildinfo.BuildInfo{
 		Name:    buildName,
@@ -684,7 +862,7 @@ func createDummyBuild(buildName string) error {
 				{
 					Type: "gz",
 					Name: "c.tar.gz",
-					Checksum: &buildinfo.Checksum{
+					Checksum: buildinfo.Checksum{
 						Sha1: "9d4336ff7bc2d2348aee4e27ad55e42110df4a80",
 						Md5:  "b4918187cc9b3bf1b0772546d9398d7d",
 					},
@@ -771,6 +949,9 @@ func deleteBuildIndex(buildName string) error {
 
 	dataIndexBuild := indexedBuildsPayload{IndexedBuilds: indexedBuilds}
 	requestContentIndexBuild, err := json.Marshal(dataIndexBuild)
+	if err != nil {
+		return err
+	}
 
 	resp, _, err := client.SendPut(xrayDetails.GetUrl()+"api/v1/binMgr/default/builds", requestContentIndexBuild, artHTTPDetails, "")
 	if err != nil {
@@ -801,4 +982,29 @@ type indexedBuildsPayload struct {
 // Verify sha256 is valid (a string size 256 characters) and not an empty string.
 func verifyValidSha256(t *testing.T, sha256 string) {
 	assert.Equal(t, 64, len(sha256), "Invalid sha256 : \""+sha256+"\"\nexpected length is 64 digit.")
+}
+
+func GetAccessDetails() auth.ServiceDetails {
+	accessDetails := accessAuth.NewAccessDetails()
+	accessDetails.SetUrl(clientutils.AddTrailingSlashIfNeeded(*AccessUrl))
+	accessDetails.SetAccessToken(*AccessToken)
+	return accessDetails
+}
+
+func createAccessProjectManager() {
+	accessDetails := GetAccessDetails()
+	client, err := createJfrogHttpClient(&accessDetails)
+	failOnHttpClientCreation(err)
+	testsAccessProjectService = accessServices.NewProjectService(client)
+	testsAccessProjectService.ServiceDetails = accessDetails
+
+	artDetails := GetRtDetails()
+	rtclient, err := createJfrogHttpClient(&artDetails)
+	failOnHttpClientCreation(err)
+	testGroupService = services.NewGroupService(rtclient)
+	testGroupService.SetArtifactoryDetails(artDetails)
+}
+
+func getUniqueField(prefix string) string {
+	return strings.Join([]string{prefix, strconv.FormatInt(time.Now().Unix(), 10), runtime.GOOS}, "-")
 }

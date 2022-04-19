@@ -2,16 +2,16 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
+	"net/http"
+	"path"
+	"strings"
+
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"net/http"
-	"path"
-	"strings"
 )
 
 type DistributeService struct {
@@ -34,7 +34,7 @@ func (ds *DistributeService) isDryRun() bool {
 
 func (ds *DistributeService) BuildDistribute(params BuildDistributionParams) error {
 	dryRun := ""
-	if ds.DryRun == true {
+	if ds.DryRun {
 		dryRun = "[Dry run] "
 	}
 	message := "Distributing build..."
@@ -52,14 +52,19 @@ func (ds *DistributeService) BuildDistribute(params BuildDistributionParams) err
 		sourceRepos = strings.Split(params.GetSourceRepos(), ",")
 	}
 
+	isDryRun := ds.isDryRun()
+	overrideExistingFiles := params.IsOverrideExistingFiles()
+	isAsync := params.IsAsync()
+
 	data := BuildDistributionBody{
 		SourceRepos:           sourceRepos,
 		TargetRepo:            params.GetTargetRepo(),
 		Publish:               params.IsPublish(),
-		OverrideExistingFiles: params.IsOverrideExistingFiles(),
+		OverrideExistingFiles: &overrideExistingFiles,
 		GpgPassphrase:         params.GetGpgPassphrase(),
-		Async:                 params.IsAsync(),
-		DryRun:                ds.isDryRun()}
+		Async:                 &isAsync,
+		DryRun:                &isDryRun,
+	}
 	requestContent, err := json.Marshal(data)
 	if err != nil {
 		return errorutils.CheckError(err)
@@ -72,8 +77,8 @@ func (ds *DistributeService) BuildDistribute(params BuildDistributionParams) err
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + clientutils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
 
 	log.Debug("Artifactory response:", resp.Status)
@@ -134,9 +139,9 @@ type BuildDistributionBody struct {
 	TargetRepo            string   `json:"targetRepo,omitempty"`
 	GpgPassphrase         string   `json:"gpgPassphrase,omitempty"`
 	Publish               bool     `json:"publish"`
-	OverrideExistingFiles bool     `json:"overrideExistingFiles,omitempty"`
-	Async                 bool     `json:"async,omitempty"`
-	DryRun                bool     `json:"dryRun,omitempty"`
+	OverrideExistingFiles *bool    `json:"overrideExistingFiles,omitempty"`
+	Async                 *bool    `json:"async,omitempty"`
+	DryRun                *bool    `json:"dryRun,omitempty"`
 }
 
 func NewBuildDistributionParams() BuildDistributionParams {

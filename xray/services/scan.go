@@ -2,8 +2,7 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"net/http"
 	"strings"
 	"time"
@@ -11,31 +10,70 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"github.com/jfrog/jfrog-client-go/utils/log"
+	"github.com/jfrog/jfrog-client-go/utils/io/httputils"
 )
 
 const (
-	scanGraphAPI                = "api/v1/scan/graph"
-	repoPathQueryParam          = "?repo_path="
-	projectQueryParam           = "?project="
-	watchesQueryParam           = "?watch="
-	watchesSeperator            = "&watch="
+	scanGraphAPI = "api/v1/scan/graph"
+
+	// Graph scan query params
+	repoPathQueryParam = "repo_path="
+	projectQueryParam  = "project="
+	watchesQueryParam  = "watch="
+	scanTypeQueryParam = "scan_type="
+
+	// Get scan results query params
 	includeVulnerabilitiesParam = "?include_vulnerabilities=true"
 	includeLicensesParam        = "?include_licenses=true"
-	defaultMaxWaitMinutes       = 5 * time.Minute // 5 minutes
-	defaultSyncSleepInterval    = 5               // 5 seconds
+	andIncludeLicensesParam     = "&include_licenses=true"
+
+	// Get scan results timeouts
+	defaultMaxWaitMinutes    = 45 * time.Minute // 45 minutes
+	defaultSyncSleepInterval = 5 * time.Second  // 5 seconds
+
+	// ScanType values
+	Dependency ScanType = "dependency"
+	Binary     ScanType = "binary"
+
+	xrayScanStatusFailed = "failed"
 )
 
+type ScanType string
+
 type ScanService struct {
-	client         *jfroghttpclient.JfrogHttpClient
-	XrayDetails    auth.ServiceDetails
-	MaxWaitMinutes time.Duration
+	client      *jfroghttpclient.JfrogHttpClient
+	XrayDetails auth.ServiceDetails
 }
 
-// NewScanService creates a new service to scan Binaries and VCS projects.
+// NewScanService creates a new service to scan binaries and audit code projects' dependencies.
 func NewScanService(client *jfroghttpclient.JfrogHttpClient) *ScanService {
 	return &ScanService{client: client}
+}
+
+func createScanGraphQueryParams(scanParams XrayGraphScanParams) string {
+	var params []string
+	if scanParams.ProjectKey != "" {
+		params = append(params, projectQueryParam+scanParams.ProjectKey)
+	} else if scanParams.RepoPath != "" {
+		params = append(params, repoPathQueryParam+scanParams.RepoPath)
+	} else if len(scanParams.Watches) > 0 {
+		for _, watch := range scanParams.Watches {
+			if watch != "" {
+				params = append(params, watchesQueryParam+watch)
+			}
+		}
+	}
+
+	if scanParams.ScanType != "" {
+		params = append(params, scanTypeQueryParam+string(scanParams.ScanType))
+	}
+
+	if len(params) == 0 {
+		return ""
+	}
+	return "?" + strings.Join(params, "&")
 }
 
 func (ss *ScanService) ScanGraph(scanParams XrayGraphScanParams) (string, error) {
@@ -46,21 +84,14 @@ func (ss *ScanService) ScanGraph(scanParams XrayGraphScanParams) (string, error)
 		return "", errorutils.CheckError(err)
 	}
 	url := ss.XrayDetails.GetUrl() + scanGraphAPI
-	if scanParams.ProjectKey != "" {
-		url += projectQueryParam + scanParams.ProjectKey
-	} else if scanParams.RepoPath != "" {
-		url += repoPathQueryParam + scanParams.RepoPath
-	} else if len(scanParams.Watches) > 0 {
-		watches := strings.Join(scanParams.Watches, watchesSeperator)
-		url += watchesQueryParam + watches
-	}
+	url += createScanGraphQueryParams(scanParams)
 	resp, body, err := ss.client.SendPost(url, requestBody, &httpClientsDetails)
 	if err != nil {
 		return "", err
 	}
 
 	if err = errorutils.CheckResponseStatus(resp, http.StatusOK, http.StatusCreated); err != nil {
-		return "", errorutils.CheckError(errors.New("Server response: " + resp.Status))
+		return "", errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
 	scanResponse := RequestScanResponse{}
 	if err = json.Unmarshal(body, &scanResponse); err != nil {
@@ -70,64 +101,43 @@ func (ss *ScanService) ScanGraph(scanParams XrayGraphScanParams) (string, error)
 }
 
 func (ss *ScanService) GetScanGraphResults(scanId string, includeVulnerabilities, includeLicenses bool) (*ScanResponse, error) {
-	maxWaitMinutes := defaultMaxWaitMinutes
-	if ss.MaxWaitMinutes > 0 {
-		maxWaitMinutes = ss.MaxWaitMinutes
-	}
 	httpClientsDetails := ss.XrayDetails.CreateHttpClientDetails()
 	utils.SetContentType("application/json", &httpClientsDetails.Headers)
 
-	message := fmt.Sprintf("Sync: Get Scan Graph results. Scan ID:%s...", scanId)
 	//The scan request may take some time to complete. We expect to receive a 202 response, until the completion.
-	ticker := time.NewTicker(defaultSyncSleepInterval)
-	timeout := make(chan bool)
-	errChan := make(chan error)
-	resultChan := make(chan []byte)
 	endPoint := ss.XrayDetails.GetUrl() + scanGraphAPI + "/" + scanId
 	if includeVulnerabilities {
 		endPoint += includeVulnerabilitiesParam
-	}
-	if includeLicenses {
+		if includeLicenses {
+			endPoint += andIncludeLicensesParam
+		}
+	} else if includeLicenses {
 		endPoint += includeLicensesParam
 	}
-	go func() {
-		for {
-			select {
-			case <-timeout:
-				errChan <- errorutils.CheckError(errors.New("Timeout for sync get scan graph results."))
-				resultChan <- nil
-				return
-			case _ = <-ticker.C:
-				log.Debug(message)
-				resp, body, _, err := ss.client.SendGet(endPoint, true, &httpClientsDetails)
-				if err != nil {
-					errChan <- err
-					resultChan <- nil
-					return
-				}
-				if err = errorutils.CheckResponseStatus(resp, http.StatusOK, http.StatusAccepted); err != nil {
-					errChan <- errorutils.CheckError(errors.New("Server response: " + resp.Status))
-					resultChan <- nil
-					return
-				}
-				// Got the full valid response.
-				if resp.StatusCode == http.StatusOK {
-					errChan <- nil
-					resultChan <- body
-					return
-				}
-			}
+	log.Info("Waiting for scan to complete...")
+	pollingAction := func() (shouldStop bool, responseBody []byte, err error) {
+		resp, body, _, err := ss.client.SendGet(endPoint, true, &httpClientsDetails)
+		if err != nil {
+			return true, nil, err
 		}
-	}()
-	// Make sure we don't wait forever
-	go func() {
-		time.Sleep(maxWaitMinutes)
-		timeout <- true
-	}()
-	// Wait for result or error
-	err := <-errChan
-	body := <-resultChan
-	ticker.Stop()
+		if err = errorutils.CheckResponseStatus(resp, http.StatusOK, http.StatusAccepted); err != nil {
+			err = errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
+			return true, nil, err
+		}
+		// Got the full valid response.
+		if resp.StatusCode == http.StatusOK {
+			return true, body, nil
+		}
+		return false, nil, nil
+	}
+	pollingExecutor := &httputils.PollingExecutor{
+		Timeout:         defaultMaxWaitMinutes,
+		PollingInterval: defaultSyncSleepInterval,
+		PollingAction:   pollingAction,
+		MsgPrefix:       "Get Dependencies Scan results... ",
+	}
+
+	body, err := pollingExecutor.Execute()
 	if err != nil {
 		return nil, err
 	}
@@ -135,16 +145,22 @@ func (ss *ScanService) GetScanGraphResults(scanId string, includeVulnerabilities
 	if err = json.Unmarshal(body, &scanResponse); err != nil {
 		return nil, errorutils.CheckError(err)
 	}
+	if scanResponse.ScannedStatus == xrayScanStatusFailed {
+		return nil, errorutils.CheckErrorf("Xray scan failed")
+	}
 	return &scanResponse, err
 }
 
 type XrayGraphScanParams struct {
 	// A path in Artifactory that this Artifact is intended to be deployed to.
 	// This will provide a way to extract the watches that should be applied on this graph
-	RepoPath   string
-	ProjectKey string
-	Watches    []string
-	Graph      *GraphNode
+	RepoPath               string
+	ProjectKey             string
+	Watches                []string
+	ScanType               ScanType
+	Graph                  *GraphNode
+	IncludeVulnerabilities bool
+	IncludeLicenses        bool
 }
 
 type GraphNode struct {
@@ -161,8 +177,12 @@ type GraphNode struct {
 	Path string `json:"path,omitempty"`
 	// List of license names
 	Licenses []string `json:"licenses,omitempty"`
+	// Component properties
+	Properties map[string]string `json:"properties,omitempty"`
 	// List of sub components.
 	Nodes []*GraphNode `json:"nodes,omitempty"`
+	// Node parent (for internal use)
+	Parent *GraphNode `json:"-"`
 }
 
 type RequestScanResponse struct {
@@ -170,10 +190,14 @@ type RequestScanResponse struct {
 }
 
 type ScanResponse struct {
-	ScanId          string          `json:"scan_id,omitempty"`
-	Violations      []Violation     `json:"violations,omitempty"`
-	Vulnerabilities []Vulnerability `json:"vulnerabilities,omitempty"`
-	Licenses        []License       `json:"licenses,omitempty"`
+	ScanId             string          `json:"scan_id,omitempty"`
+	XrayDataUrl        string          `json:"xray_data_url,omitempty"`
+	Violations         []Violation     `json:"violations,omitempty"`
+	Vulnerabilities    []Vulnerability `json:"vulnerabilities,omitempty"`
+	Licenses           []License       `json:"licenses,omitempty"`
+	ScannedComponentId string          `json:"component_id,omitempty"`
+	ScannedPackageType string          `json:"package_type,omitempty"`
+	ScannedStatus      string          `json:"status,omitempty"`
 }
 
 type Violation struct {
@@ -189,6 +213,14 @@ type Violation struct {
 	LicenseKey    string               `json:"license_key,omitempty"`
 	LicenseName   string               `json:"license_name,omitempty"`
 	IgnoreUrl     string               `json:"ignore_url,omitempty"`
+	RiskReason    string               `json:"risk_reason,omitempty"`
+	IsEol         *bool                `json:"is_eol,omitempty"`
+	EolMessage    string               `json:"eol_message,omitempty"`
+	LatestVersion string               `json:"latest_version,omitempty"`
+	NewerVersions *int                 `json:"newer_versions,omitempty"`
+	Cadence       *float64             `json:"cadence,omitempty"`
+	Commits       *int64               `json:"commits,omitempty"`
+	Committers    *int                 `json:"committers,omitempty"`
 }
 
 type Vulnerability struct {
@@ -198,10 +230,11 @@ type Vulnerability struct {
 	VulnerableComponents []string             `json:"vulnerable_components,omitempty"`
 	Components           map[string]Component `json:"components,omitempty"`
 	IssueId              string               `json:"issue_id,omitempty"`
+	References           []string             `json:"references,omitempty"`
 }
 
 type License struct {
-	Key        string               `json:"key,omitempty"`
+	Key        string               `json:"license_key,omitempty"`
 	Name       string               `json:"name,omitempty"`
 	Components map[string]Component `json:"components,omitempty"`
 	Custom     bool                 `json:"custom,omitempty"`
@@ -230,6 +263,13 @@ func (gp *XrayGraphScanParams) GetProjectKey() string {
 	return gp.ProjectKey
 }
 
-func NewXrayGraphScanParams() XrayGraphScanParams {
-	return XrayGraphScanParams{}
+func (currNode *GraphNode) NodeHasLoop() bool {
+	parent := currNode.Parent
+	for parent != nil {
+		if currNode.Id == parent.Id {
+			return true
+		}
+		parent = parent.Parent
+	}
+	return false
 }

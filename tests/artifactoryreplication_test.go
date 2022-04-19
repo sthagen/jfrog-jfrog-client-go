@@ -1,18 +1,11 @@
 package tests
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/stretchr/testify/assert"
-)
-
-var (
-	// TrimSuffix cannot be constants
-	// we can declare them as top-level variables
-	repoKey string = strings.TrimSuffix(RtTargetRepo, "/")
 )
 
 func TestReplication(t *testing.T) {
@@ -21,7 +14,7 @@ func TestReplication(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	err = getPushReplication(t, GetReplicationConfig())
+	err = getAndAssertReplication(t, GetReplicationConfig())
 	if err != nil {
 		t.Error(err)
 	}
@@ -29,7 +22,7 @@ func TestReplication(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	err = getPushReplication(t, nil)
+	err = getAndAssertReplication(t, nil)
 	assert.Error(t, err)
 }
 
@@ -40,14 +33,15 @@ func createReplication() error {
 	params.Password = "password"
 	params.Url = "http://www.jfrog.com"
 	params.CronExp = "0 0 14 * * ?"
-	params.RepoKey = repoKey
+	params.RepoKey = getRtTargetRepoKey()
 	params.Enabled = true
 	params.SocketTimeoutMillis = 100
+	params.IncludePathPrefixPattern = "/include/path"
 	return testsCreateReplicationService.CreateReplication(params)
 }
 
-func getPushReplication(t *testing.T, expected []utils.ReplicationParams) error {
-	replicationConf, err := testsReplicationGetService.GetReplication(repoKey)
+func getAndAssertReplication(t *testing.T, expected []utils.ReplicationParams) error {
+	replicationConf, err := testsReplicationGetService.GetReplication(getRtTargetRepoKey())
 	if err != nil {
 		return err
 	}
@@ -65,7 +59,7 @@ func getPushReplication(t *testing.T, expected []utils.ReplicationParams) error 
 }
 
 func deleteReplication(t *testing.T) error {
-	err := testsReplicationDeleteService.DeleteReplication(repoKey)
+	err := testsReplicationDeleteService.DeleteReplication(getRtTargetRepoKey())
 	if err != nil {
 		return err
 	}
@@ -75,18 +69,18 @@ func deleteReplication(t *testing.T) error {
 func GetReplicationConfig() []utils.ReplicationParams {
 	return []utils.ReplicationParams{
 		{
-			Url:                    "http://www.jfrog.com",
-			Username:               "anonymous",
-			Password:               "password",
-			CronExp:                "0 0 14 * * ?",
-			RepoKey:                repoKey,
-			EnableEventReplication: false,
-			SocketTimeoutMillis:    100,
-			Enabled:                true,
-			SyncDeletes:            false,
-			SyncProperties:         false,
-			SyncStatistics:         false,
-			PathPrefix:             "",
+			Url:                      "http://www.jfrog.com",
+			Username:                 "anonymous",
+			Password:                 "password",
+			CronExp:                  "0 0 14 * * ?",
+			RepoKey:                  getRtTargetRepoKey(),
+			EnableEventReplication:   false,
+			SocketTimeoutMillis:      100,
+			Enabled:                  true,
+			SyncDeletes:              false,
+			SyncProperties:           false,
+			SyncStatistics:           false,
+			IncludePathPrefixPattern: "/include/path",
 		},
 	}
 }

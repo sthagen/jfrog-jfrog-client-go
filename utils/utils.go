@@ -5,12 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/jfrog/jfrog-client-go/utils/io"
+
+	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/gofrog/stringutils"
 
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 
@@ -21,7 +27,7 @@ import (
 const (
 	Development = "development"
 	Agent       = "jfrog-client-go"
-	Version     = "0.25.0"
+	Version     = "1.12.1"
 )
 
 // In order to limit the number of items loaded from a reader into the memory, we use a buffers with this size limit.
@@ -64,21 +70,21 @@ func GetRootPath(path string, patternType PatternType, parentheses ParenthesesSl
 			continue
 		}
 		if patternType == RegExp {
-			if strings.Index(section, "(") != -1 {
+			if strings.Contains(section, "(") {
 				break
 			}
 		} else {
-			if strings.Index(section, "*") != -1 {
+			if strings.Contains(section, "*") {
 				break
 			}
-			if strings.Index(section, "(") != -1 {
+			if strings.Contains(section, "(") {
 				temp := rootPath + section
 				if isWildcardParentheses(temp, parentheses) {
 					break
 				}
 			}
 			if patternType == AntPattern {
-				if strings.Index(section, "?") != -1 {
+				if strings.Contains(section, "?") {
 					break
 				}
 			}
@@ -123,8 +129,7 @@ func isWildcardParentheses(str string, parentheses ParenthesesSlice) bool {
 func StringToBool(boolVal string, defaultValue bool) (bool, error) {
 	if len(boolVal) > 0 {
 		result, err := strconv.ParseBool(boolVal)
-		errorutils.CheckError(err)
-		return result, err
+		return result, errorutils.CheckError(err)
 	}
 	return defaultValue, nil
 }
@@ -179,7 +184,7 @@ func ConvertLocalPatternToRegexp(localPath string, patternType PatternType) stri
 	if patternType == AntPattern {
 		localPath = antPatternToRegExp(cleanPath(localPath))
 	} else if patternType == WildCardPattern {
-		localPath = WildcardPathToRegExp(cleanPath(localPath))
+		localPath = stringutils.WildcardPatternToRegExp(cleanPath(localPath))
 	}
 
 	return localPath
@@ -197,24 +202,22 @@ func cleanPath(path string) string {
 	return path
 }
 
-func WildcardPathToRegExp(localPath string) string {
-	localPath = replaceSpecialChars(localPath)
-	var wildcard = ".*"
-	localPath = strings.Replace(localPath, "*", wildcard, -1)
-	if strings.HasSuffix(localPath, "/") || strings.HasSuffix(localPath, "\\") {
-		localPath += wildcard
-	}
-	return "^" + localPath + "$"
-}
-
 func antPatternToRegExp(localPath string) string {
-	localPath = replaceSpecialChars(localPath)
+	localPath = stringutils.EscapeSpecialChars(localPath)
 	separator := getFileSeparator()
+	// 'xxx/' => 'xxx/**'
+	if strings.HasSuffix(localPath, separator) {
+		localPath += "**"
+	}
 	var wildcard = ".*"
 	// ant `*` ~ regexp `([^/]*)` : `*` matches zero or more characters except from `/`.
 	var regAsterisk = "([^" + separator + "]*)"
+	// ant `\*` ~ regexp `([^/]+)` : `\*` matches one or more characters (except from `/`) with a `/` prefix.
+	var regAsteriskWithSeparatorPrefix = "([^" + separator + "]+)"
 	// ant `**` ~ regexp `(.*)?` : `**` matches zero or more 'directories' in a path.
 	var doubleRegAsterisk = "(" + wildcard + ")?"
+	var doubleRegAsteriskWithSeparatorPrefix = "(" + wildcard + separator + ")?"
+	var doubleRegAsteriskWithSeparatorSuffix = "(" + separator + wildcard + ")?"
 
 	// `?` => `.{1}` : `?` matches one character.
 	localPath = strings.Replace(localPath, `?`, ".{1}", -1)
@@ -222,29 +225,26 @@ func antPatternToRegExp(localPath string) string {
 	localPath = strings.Replace(localPath, `*`, regAsterisk, -1)
 	// `**` => `(.*)?`
 	localPath = strings.Replace(localPath, regAsterisk+regAsterisk, doubleRegAsterisk, -1)
-	// Remove slashes near `**`
-	localPath = strings.Replace(localPath, doubleRegAsterisk+separator, doubleRegAsterisk, -1)
-	localPath = strings.Replace(localPath, separator+doubleRegAsterisk, doubleRegAsterisk, -1)
 
-	if strings.HasSuffix(localPath, "/") || strings.HasSuffix(localPath, "\\") {
-		localPath += wildcard
+	// `\([^/]*)` => `\([^/]+)` : there are 2 cases with '*':
+	//		1. xxx/x* : * will represent 0 or more characters.
+	//		2. xxx/* : * will represent 1 or more characters.
+	// This "replace" handles the second option.
+	localPath = strings.Replace(localPath, separator+regAsterisk, separator+regAsteriskWithSeparatorPrefix, -1)
+	// `(.*)?/` => `(.*/)?`
+	localPath = strings.Replace(localPath, doubleRegAsterisk+separator, doubleRegAsteriskWithSeparatorPrefix, -1)
+	// Convert the last '/**' in the expression if exists : `/(.*)?` => `(/.*)?`
+	if strings.HasSuffix(localPath, separator+doubleRegAsterisk) {
+		localPath = strings.TrimSuffix(localPath, separator+doubleRegAsterisk) + doubleRegAsteriskWithSeparatorSuffix
 	}
 	return "^" + localPath + "$"
 }
 
 func getFileSeparator() string {
-	if IsWindows() {
+	if io.IsWindows() {
 		return "\\\\"
 	}
 	return "/"
-}
-
-func replaceSpecialChars(path string) string {
-	var specialChars = []string{".", "^", "$", "+"}
-	for _, char := range specialChars {
-		path = strings.Replace(path, char, "\\"+char, -1)
-	}
-	return path
 }
 
 // Replaces matched regular expression from path to corresponding placeholder {i} at target.
@@ -265,7 +265,7 @@ func BuildTargetPath(pattern, path, target string, ignoreRepo bool) (string, boo
 		path = removeRepoFromPath(path)
 	}
 	pattern = addEscapingParentheses(pattern, target)
-	pattern = WildcardPathToRegExp(pattern)
+	pattern = stringutils.WildcardPatternToRegExp(pattern)
 	if slashIndex < 0 {
 		// If '/' doesn't exist, add an optional trailing-slash to support cases in which the provided pattern
 		// is only the repository name.
@@ -332,7 +332,7 @@ func ReplaceTildeWithUserHome(path string) string {
 }
 
 func GetUserHomeDir() string {
-	if IsWindows() {
+	if io.IsWindows() {
 		home := os.Getenv("HOMEDRIVE") + os.Getenv("HOMEPATH")
 		if home == "" {
 			home = os.Getenv("USERPROFILE")
@@ -419,14 +419,11 @@ func AddProps(oldProps, additionalProps string) string {
 	return oldProps + additionalProps
 }
 
-func IsWindows() bool {
-	return runtime.GOOS == "windows"
-}
-
 type Artifact struct {
-	LocalPath  string
-	TargetPath string
-	Symlink    string
+	LocalPath           string
+	TargetPath          string
+	SymlinkTargetPath   string
+	TargetPathInArchive string
 }
 
 const (
@@ -490,32 +487,43 @@ type FileTransferDetails struct {
 
 // Represent deployed artifact's details returned from build-info project for maven and gradle.
 type DeployableArtifactDetails struct {
-	SourcePath      string `json:"sourcePath,omitempty"`
-	ArtifactDest    string `json:"artifactDest,omitempty"`
-	Sha256          string `json:"sha256,omitempty"`
-	DeploySucceeded bool   `json:"deploySucceeded,omitempty"`
+	SourcePath       string `json:"sourcePath,omitempty"`
+	ArtifactDest     string `json:"artifactDest,omitempty"`
+	Sha256           string `json:"sha256,omitempty"`
+	DeploySucceeded  bool   `json:"deploySucceeded,omitempty"`
+	TargetRepository string `json:"targetRepository,omitempty"`
 }
 
-func (detailes *DeployableArtifactDetails) CreateFileTransferDetails() FileTransferDetails {
-	return FileTransferDetails{SourcePath: detailes.SourcePath, TargetPath: detailes.ArtifactDest, Sha256: detailes.Sha256}
+func (details *DeployableArtifactDetails) CreateFileTransferDetails(rtUrl, targetRepository string) (FileTransferDetails, error) {
+	// The function path.Join expects a path, not a URL.
+	// Therefore we first parse the URL to get a path.
+	targetUrl, err := url.Parse(rtUrl + targetRepository)
+	if err != nil {
+		return FileTransferDetails{}, err
+	}
+	// The path.join will always use a single slash (forward) to separate between the two vars.
+	targetUrl.Path = path.Join(targetUrl.Path, details.ArtifactDest)
+	targetPath := targetUrl.String()
+
+	return FileTransferDetails{SourcePath: details.SourcePath, TargetPath: targetPath, Sha256: details.Sha256}, nil
 }
 
 type UploadResponseBody struct {
-	Checksums ChecksumDetails `json:"checksums,omitempty"`
+	Checksums entities.Checksum `json:"checksums,omitempty"`
 }
 
-type ChecksumDetails struct {
-	Md5    string
-	Sha1   string
-	Sha256 string
-}
-
-func SaveFileTransferDetailsInTempFile(filesDetails *[]FileTransferDetails) (string, error) {
+func SaveFileTransferDetailsInTempFile(filesDetails *[]FileTransferDetails) (filePath string, err error) {
 	tempFile, err := fileutils.CreateTempFile()
 	if err != nil {
 		return "", err
 	}
-	filePath := tempFile.Name()
+	defer func() {
+		e := tempFile.Close()
+		if err == nil {
+			err = errorutils.CheckError(e)
+		}
+	}()
+	filePath = tempFile.Name()
 	return filePath, SaveFileTransferDetailsInFile(filePath, filesDetails)
 }
 

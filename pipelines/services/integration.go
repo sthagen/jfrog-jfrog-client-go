@@ -2,7 +2,6 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -164,8 +163,8 @@ func (is *IntegrationsService) createIntegration(integration IntegrationCreation
 	if err != nil {
 		return -1, err
 	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		err := errors.New("Pipelines response: " + resp.Status + "\n" + utils.IndentJson(body))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK, http.StatusCreated); err != nil {
+		err := errorutils.GenerateResponseError(resp.Status, utils.IndentJson(body))
 		if resp.StatusCode == http.StatusConflict {
 			return -1, errorutils.CheckError(&IntegrationAlreadyExistsError{InnerError: err})
 		}
@@ -208,8 +207,8 @@ func (is *IntegrationsService) DeleteIntegration(integrationId int) error {
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return errorutils.CheckError(errors.New("Pipelines response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, utils.IndentJson(body)))
 	}
 	return nil
 }
@@ -222,8 +221,8 @@ func (is *IntegrationsService) GetIntegrationById(integrationId int) (*Integrati
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, errorutils.CheckError(errors.New("Pipelines response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return nil, errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, utils.IndentJson(body)))
 	}
 	integration := &Integration{}
 	err = json.Unmarshal(body, integration)
@@ -241,7 +240,7 @@ func (is *IntegrationsService) GetIntegrationByName(name string) (*Integration, 
 			return &integration, nil
 		}
 	}
-	return nil, errorutils.CheckError(errors.New("integration with provided name was not found in pipelines"))
+	return nil, errorutils.CheckErrorf("integration with provided name was not found in pipelines")
 }
 
 func (is *IntegrationsService) GetAllIntegrations() ([]Integration, error) {
@@ -252,8 +251,8 @@ func (is *IntegrationsService) GetAllIntegrations() ([]Integration, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, errorutils.CheckError(errors.New("Pipelines response: " + resp.Status + "\n" + utils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return nil, errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, utils.IndentJson(body)))
 	}
 	integrations := &[]Integration{}
 	err = json.Unmarshal(body, integrations)

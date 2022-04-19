@@ -17,7 +17,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/tests"
 )
 
-const SUCCESS_RESPONSE = "successful response"
+const SuccessResponse = "successful response"
 
 type testContext struct {
 	tryNum int
@@ -55,8 +55,8 @@ func TestSimpleSuccessful(t *testing.T) {
 		return
 	}
 
-	if string(res) != SUCCESS_RESPONSE {
-		t.Error(fmt.Errorf("expected, %s, got: %s", SUCCESS_RESPONSE, string(res)))
+	if string(res) != SuccessResponse {
+		t.Error(fmt.Errorf("expected, %s, got: %s", SuccessResponse, string(res)))
 	}
 }
 
@@ -80,7 +80,7 @@ func TestSimpleExceedConnectionRetries(t *testing.T) {
 	}
 
 	_, err := connection.Do()
-	if err != exhaustedErr {
+	if err != errExhausted {
 		t.Error(err)
 		return
 	}
@@ -110,8 +110,8 @@ func TestRetryStableWindowConnection(t *testing.T) {
 		return
 	}
 
-	if string(res) != SUCCESS_RESPONSE {
-		t.Error(fmt.Errorf("expected, %s, got: %s", SUCCESS_RESPONSE, string(res)))
+	if string(res) != SuccessResponse {
+		t.Error(fmt.Errorf("expected, %s, got: %s", SuccessResponse, string(res)))
 	}
 }
 
@@ -136,7 +136,7 @@ func TestRetryExceedUnstableWindowConnection(t *testing.T) {
 	}
 
 	_, err := connection.Do()
-	if err != exhaustedErr {
+	if err != errExhausted {
 		t.Error(err)
 		return
 	}
@@ -160,7 +160,7 @@ func TestRetryExceededWithNoStableConnectionWindow(t *testing.T) {
 	}
 
 	_, err := connection.Do()
-	if err != exhaustedErr {
+	if err != errExhausted {
 		t.Error(err)
 		return
 	}
@@ -186,7 +186,7 @@ func TestErrorHandler(t *testing.T) {
 	}
 
 	_, err := connection.Do()
-	if err != exhaustedErr {
+	if err != errExhausted {
 		t.Error(err)
 		return
 	}
@@ -206,7 +206,7 @@ func execGet(port int, path string, c *testContext) (*http.Response, error) {
 	c.tryNum++
 
 	if resp.StatusCode != http.StatusOK {
-		err = errorutils.CheckError(errors.New("Response: " + resp.Status))
+		err = errorutils.CheckErrorf("Response: " + resp.Status)
 	}
 
 	return resp, err
@@ -233,7 +233,7 @@ func simpleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendIdleAndSleep(fw, 4, 1)
-	fmt.Fprint(fw, SUCCESS_RESPONSE)
+	fmt.Fprint(fw, SuccessResponse)
 }
 
 // Retry handler will send \r\n 4 times with 4 sec in between.
@@ -244,7 +244,7 @@ func exceedRetriesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendIdleAndSleep(fw, 4, 4)
-	fmt.Fprint(fw, SUCCESS_RESPONSE)
+	fmt.Fprint(fw, SuccessResponse)
 }
 
 // Response handler with context according to the request body.
@@ -284,7 +284,7 @@ func windowHandler(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	case 6:
-		fmt.Fprint(fw, SUCCESS_RESPONSE)
+		fmt.Fprint(fw, SuccessResponse)
 		return
 	}
 	http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

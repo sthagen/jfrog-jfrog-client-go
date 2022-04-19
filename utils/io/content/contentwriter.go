@@ -106,7 +106,12 @@ func (rw *ContentWriter) startWritingWorker() {
 func (rw *ContentWriter) run() {
 	var err error
 	if !rw.useStdout {
-		defer rw.outputFile.Close()
+		defer func() {
+			err = rw.outputFile.Close()
+			if err != nil {
+				rw.errorsQueue.AddError(errorutils.CheckError(err))
+			}
+		}()
 	}
 	openString := jsonArrayPrefixPattern
 	closeString := ""
@@ -152,7 +157,6 @@ func (rw *ContentWriter) run() {
 	if err != nil {
 		rw.errorsQueue.AddError(errorutils.CheckError(err))
 	}
-	return
 }
 
 // Finish writing to the file.

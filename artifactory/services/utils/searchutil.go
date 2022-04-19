@@ -2,7 +2,6 @@ package utils
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,9 +12,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jfrog/jfrog-client-go/utils/version"
+	buildinfo "github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/gofrog/version"
 
-	"github.com/jfrog/jfrog-client-go/artifactory/buildinfo"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
@@ -35,11 +34,11 @@ const (
 // Use this function when searching by build without pattern or aql.
 // Collect build artifacts and build dependencies separately, then merge the results into one reader.
 func SearchBySpecWithBuild(specFile *CommonParams, flags CommonConf) (*content.ContentReader, error) {
-	buildName, buildNumber, err := getBuildNameAndNumberFromBuildIdentifier(specFile.Build, flags)
+	buildName, buildNumber, err := getBuildNameAndNumberFromBuildIdentifier(specFile.Build, specFile.Project, flags)
 	if err != nil {
 		return nil, err
 	}
-	aggregatedBuilds, err := getAggregatedBuilds(buildName, buildNumber, "", flags)
+	aggregatedBuilds, err := getAggregatedBuilds(buildName, buildNumber, specFile.Project, flags)
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +143,9 @@ func filterBuildArtifactsAndDependencies(artifactsReader, dependenciesReader *co
 	}
 	defer mergedReader.Close()
 	buildArtifactsSha1, err := extractSha1FromAqlResponse(mergedReader)
+	if err != nil {
+		return nil, err
+	}
 	return filterBuildAqlSearchResults(mergedReader, buildArtifactsSha1, builds)
 }
 
@@ -250,44 +252,54 @@ func ExecAql(aqlQuery string, flags CommonConf) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n"))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return nil, errorutils.CheckError(err)
 	}
 	log.Debug("Artifactory response: ", resp.Status)
 	return resp.Body, err
 }
 
-func ExecAqlSaveToFile(aqlQuery string, flags CommonConf) (*content.ContentReader, error) {
-	body, err := ExecAql(aqlQuery, flags)
+func ExecAqlSaveToFile(aqlQuery string, flags CommonConf) (reader *content.ContentReader, err error) {
+	var body io.ReadCloser
+	body, err = ExecAql(aqlQuery, flags)
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer func() {
-		err := body.Close()
-		if err != nil {
-			log.Warn("Could not close connection:" + err.Error() + ".")
+		if body != nil {
+			e := body.Close()
+			if err == nil {
+				err = errorutils.CheckError(e)
+			}
 		}
 	}()
 	log.Debug("Streaming data to file...")
-	filePath, err := streamToFile(body)
+	var filePath string
+	filePath, err = streamToFile(body)
 	if err != nil {
-		return nil, err
+		return
 	}
-	log.Debug("Finish streaming data successfully.")
-	return content.NewContentReader(filePath, content.DefaultKey), err
+	log.Debug("Finished streaming data successfully.")
+	reader = content.NewContentReader(filePath, content.DefaultKey)
+	return
 }
 
 // Save the reader output into a temp file.
 // return the file path.
-func streamToFile(reader io.Reader) (string, error) {
+func streamToFile(reader io.Reader) (filePath string, err error) {
 	var fd *os.File
-	bufio := bufio.NewReaderSize(reader, 65536)
-	fd, err := fileutils.CreateTempFile()
+	bufioReader := bufio.NewReaderSize(reader, 65536)
+	fd, err = fileutils.CreateTempFile()
 	if err != nil {
 		return "", err
 	}
-	defer fd.Close()
-	_, err = io.Copy(fd, bufio)
+	defer func() {
+		e := fd.Close()
+		if err == nil {
+			err = errorutils.CheckError(e)
+		}
+	}()
+	_, err = io.Copy(fd, bufioReader)
 	return fd.Name(), errorutils.CheckError(err)
 }
 
@@ -317,6 +329,7 @@ type ResultItem struct {
 	Name        string     `json:"name,omitempty"`
 	Actual_Md5  string     `json:"actual_md5,omitempty"`
 	Actual_Sha1 string     `json:"actual_sha1,omitempty"`
+	Sha256      string     `json:"sha256,omitempty"`
 	Size        int64      `json:"size,omitempty"`
 	Created     string     `json:"created,omitempty"`
 	Modified    string     `json:"modified,omitempty"`
@@ -325,6 +338,9 @@ type ResultItem struct {
 }
 
 func (item ResultItem) GetSortKey() string {
+	if item.Type == "folder" {
+		return appendFolderSuffix(item.GetItemRelativePath())
+	}
 	return item.GetItemRelativePath()
 }
 
@@ -344,8 +360,8 @@ func (item ResultItem) GetItemRelativePath() string {
 	url := item.Repo
 	url = addSeparator(url, "/", item.Path)
 	url = addSeparator(url, "/", item.Name)
-	if item.Type == "folder" && !strings.HasSuffix(url, "/") {
-		url = url + "/"
+	if item.Type == "folder" {
+		url = appendFolderSuffix(url)
 	}
 	return url
 }
@@ -367,11 +383,11 @@ func addSeparator(str1, separator, str2 string) string {
 }
 
 func (item *ResultItem) ToArtifact() buildinfo.Artifact {
-	return buildinfo.Artifact{Name: item.Name, Checksum: &buildinfo.Checksum{Sha1: item.Actual_Sha1, Md5: item.Actual_Md5}, Path: path.Join(item.Repo, item.Path, item.Name)}
+	return buildinfo.Artifact{Name: item.Name, Checksum: buildinfo.Checksum{Sha1: item.Actual_Sha1, Md5: item.Actual_Md5}, Path: path.Join(item.Path, item.Name)}
 }
 
 func (item *ResultItem) ToDependency() buildinfo.Dependency {
-	return buildinfo.Dependency{Id: item.Name, Checksum: &buildinfo.Checksum{Sha1: item.Actual_Sha1, Md5: item.Actual_Md5}}
+	return buildinfo.Dependency{Id: item.Name, Checksum: buildinfo.Checksum{Sha1: item.Actual_Sha1, Md5: item.Actual_Md5}}
 }
 
 type AqlSearchResultItemFilter func(SearchBasedContentItem, *content.ContentReader) (*content.ContentReader, error)
@@ -399,7 +415,7 @@ func FilterBottomChainResults(readerRecord SearchBasedContentItem, reader *conte
 	for newRecord := (reflect.New(recordType)).Interface(); reader.NextRecord(newRecord) == nil; newRecord = (reflect.New(recordType)).Interface() {
 		resultItem, ok := newRecord.(SearchBasedContentItem)
 		if !ok {
-			return nil, errorutils.CheckError(errors.New("Reader record is not search-based."))
+			return nil, errorutils.CheckErrorf("Reader record is not search-based.")
 		}
 
 		if resultItem.GetName() == "." {
@@ -437,7 +453,7 @@ func FilterTopChainResults(readerRecord SearchBasedContentItem, reader *content.
 	for newRecord := (reflect.New(recordType)).Interface(); reader.NextRecord(newRecord) == nil; newRecord = (reflect.New(recordType)).Interface() {
 		resultItem, ok := newRecord.(SearchBasedContentItem)
 		if !ok {
-			return nil, errorutils.CheckError(errors.New("Reader record is not search-based."))
+			return nil, errorutils.CheckErrorf("Reader record is not search-based.")
 		}
 
 		if resultItem.GetName() == "." {
@@ -486,4 +502,11 @@ func DisableTransitiveSearchIfNotAllowed(params *CommonParams, artifactoryVersio
 			transitiveSearchMinVersion, artifactoryVersion.GetVersion()))
 		params.Transitive = false
 	}
+}
+
+func appendFolderSuffix(folderPath string) string {
+	if !strings.HasSuffix(folderPath, "/") {
+		folderPath = folderPath + "/"
+	}
+	return folderPath
 }

@@ -2,7 +2,6 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -31,10 +30,16 @@ func (drs *GetReplicationService) GetReplication(repoKey string) ([]utils.Replic
 	if err != nil {
 		return nil, err
 	}
-	var replicationConf []utils.ReplicationParams
-	if err := json.Unmarshal(body, &replicationConf); err != nil {
+	var replicationBody []utils.GetReplicationBody
+	if err := json.Unmarshal(body, &replicationBody); err != nil {
 		return nil, errorutils.CheckError(err)
 	}
+
+	var replicationConf = make([]utils.ReplicationParams, len(replicationBody))
+	for i, body := range replicationBody {
+		replicationConf[i] = *utils.CreateReplicationParams(body)
+	}
+
 	return replicationConf, nil
 }
 
@@ -45,8 +50,8 @@ func (drs *GetReplicationService) preform(repoKey string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, errorutils.CheckError(errors.New("Artifactory response: " + resp.Status + "\n" + clientutils.IndentJson(body)))
+	if err = errorutils.CheckResponseStatus(resp, http.StatusOK); err != nil {
+		return nil, errorutils.CheckError(errorutils.GenerateResponseError(resp.Status, clientutils.IndentJson(body)))
 	}
 	log.Debug("Artifactory response:", resp.Status)
 	log.Info("Done retrieve replication job.")
