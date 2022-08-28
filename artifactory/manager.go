@@ -486,6 +486,12 @@ func (sm *ArtifactoryServicesManagerImp) GetGroup(params services.GroupParams) (
 	return groupService.GetGroup(params)
 }
 
+func (sm *ArtifactoryServicesManagerImp) GetAllGroups() (*[]string, error) {
+	groupService := services.NewGroupService(sm.client)
+	groupService.ArtDetails = sm.config.GetServiceDetails()
+	return groupService.GetAllGroups()
+}
+
 func (sm *ArtifactoryServicesManagerImp) CreateGroup(params services.GroupParams) error {
 	groupService := services.NewGroupService(sm.client)
 	groupService.ArtDetails = sm.config.GetServiceDetails()
@@ -532,6 +538,18 @@ func (sm *ArtifactoryServicesManagerImp) DeleteUser(name string) error {
 	userService := services.NewUserService(sm.client)
 	userService.ArtDetails = sm.config.GetServiceDetails()
 	return userService.DeleteUser(name)
+}
+
+func (sm *ArtifactoryServicesManagerImp) GetLockedUsers() ([]string, error) {
+	userService := services.NewUserService(sm.client)
+	userService.ArtDetails = sm.config.GetServiceDetails()
+	return userService.GetLockedUsers()
+}
+
+func (sm *ArtifactoryServicesManagerImp) UnlockUser(name string) error {
+	userService := services.NewUserService(sm.client)
+	userService.ArtDetails = sm.config.GetServiceDetails()
+	return userService.UnlockUser(name)
 }
 
 func (sm *ArtifactoryServicesManagerImp) PromoteDocker(params services.DockerPromoteParams) error {

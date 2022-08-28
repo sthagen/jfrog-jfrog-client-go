@@ -83,6 +83,7 @@ type ArtifactoryServicesManager interface {
 	PromoteDocker(params services.DockerPromoteParams) error
 	Client() *jfroghttpclient.JfrogHttpClient
 	GetGroup(params services.GroupParams) (*services.Group, error)
+	GetAllGroups() (*[]string, error)
 	CreateGroup(params services.GroupParams) error
 	UpdateGroup(params services.GroupParams) error
 	DeleteGroup(name string) error
@@ -91,6 +92,8 @@ type ArtifactoryServicesManager interface {
 	CreateUser(params services.UserParams) error
 	UpdateUser(params services.UserParams) error
 	DeleteUser(name string) error
+	GetLockedUsers() ([]string, error)
+	UnlockUser(name string) error
 	ConvertLocalToFederatedRepository(repoKey string) error
 	TriggerFederatedRepositoryFullSyncAll(repoKey string) error
 	TriggerFederatedRepositoryFullSyncMirror(repoKey string, mirrorUrl string) error
@@ -387,7 +390,19 @@ func (esm *EmptyArtifactoryServicesManager) DeleteUser(name string) error {
 	panic("Failed: Method is not implemented")
 }
 
+func (esm *EmptyArtifactoryServicesManager) GetLockedUsers() ([]string, error) {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) UnlockUser(name string) error {
+	panic("Failed: Method is not implemented")
+}
+
 func (esm *EmptyArtifactoryServicesManager) GetGroup(params services.GroupParams) (*services.Group, error) {
+	panic("Failed: Method is not implemented")
+}
+
+func (esm *EmptyArtifactoryServicesManager) GetAllGroups() (*[]string, error) {
 	panic("Failed: Method is not implemented")
 }
 
