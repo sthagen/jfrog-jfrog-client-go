@@ -1,12 +1,11 @@
 package tests
 
 import (
+	"fmt"
 	pipelinesServices "github.com/jfrog/jfrog-client-go/pipelines/services"
 	"github.com/jfrog/jfrog-client-go/utils/io/httputils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 )
@@ -19,9 +18,9 @@ func TestPipelinesRunService(t *testing.T) {
 }
 
 const (
-	// define default wait time
+	// Define default wait time
 	defaultMaxWaitMinutes    = 10 * time.Minute
-	defaultSyncSleepInterval = 5 * time.Second // 5 seconds
+	defaultSyncSleepInterval = 5 * time.Second
 )
 
 func testTriggerSync(t *testing.T) {
@@ -29,16 +28,16 @@ func testTriggerSync(t *testing.T) {
 		return
 	}
 	// Create integration with provided token.
-	unixTime := time.Now().Unix()
-	timeString := strconv.Itoa(int(unixTime))
-	integrationName := strings.Join([]string{"github", "integration_test", timeString}, "_")
+	integrationName := getUniqueIntegrationName(pipelinesServices.GithubName)
 	integrationId, err := testsPipelinesIntegrationsService.CreateGithubIntegration(integrationName, *PipelinesVcsToken)
 	assert.NoError(t, err)
 	defer deleteIntegrationAndAssert(t, integrationId)
 
 	// Create source with the above integration and assert.
-	sourceId, srcErr := testsPipelinesSourcesService.AddSource(integrationId, *PipelinesVcsRepoFullPath, *PipelinesVcsBranch, pipelinesServices.DefaultPipelinesFileFilter)
-	assert.NoError(t, srcErr)
+	sourceId, err := testsPipelinesSourcesService.AddSource(integrationId, *PipelinesVcsRepoFullPath, *PipelinesVcsBranch, pipelinesServices.DefaultPipelinesFileFilter)
+	if !assert.NoError(t, err) {
+		return
+	}
 	defer deleteSourceAndAssert(t, sourceId)
 	pollSyncPipelineSource(t)
 }
@@ -47,18 +46,17 @@ func testGetSyncStatus(t *testing.T) {
 	if !assert.NotEmpty(t, *PipelinesVcsToken, "cannot run pipelines tests without vcs token configured") {
 		return
 	}
-	// Create integration with provided token.'
-	unixTime := time.Now().Unix()
-	timeString := strconv.Itoa(int(unixTime))
-	integrationName := strings.Join([]string{"github", "integration_test", timeString}, "_")
+	// Create integration with provided token.
+	integrationName := getUniqueIntegrationName(pipelinesServices.GithubName)
 	integrationId, err := testsPipelinesIntegrationsService.CreateGithubIntegration(integrationName, *PipelinesVcsToken)
 	assert.NoError(t, err)
 	defer deleteIntegrationAndAssert(t, integrationId)
 
 	// Create source with the above integration and assert.
-	sourceId, srcErr := testsPipelinesSourcesService.AddSource(integrationId, *PipelinesVcsRepoFullPath, *PipelinesVcsBranch, pipelinesServices.DefaultPipelinesFileFilter)
-	assert.NoError(t, srcErr)
-
+	sourceId, err := testsPipelinesSourcesService.AddSource(integrationId, *PipelinesVcsRepoFullPath, *PipelinesVcsBranch, pipelinesServices.DefaultPipelinesFileFilter)
+	if !assert.NoError(t, err) {
+		return
+	}
 	defer deleteSourceAndAssert(t, sourceId)
 	pollSyncPipelineSource(t)
 	pollForSyncResourceStatus(t)
@@ -69,30 +67,29 @@ func testGetRunStatus(t *testing.T) {
 		return
 	}
 	// Create integration with provided token.
-	unixTime := time.Now().Unix()
-	timeString := strconv.Itoa(int(unixTime))
-	integrationName := strings.Join([]string{"github", "integration_test", timeString}, "_")
+	integrationName := getUniqueIntegrationName(pipelinesServices.GithubName)
 	integrationId, err := testsPipelinesIntegrationsService.CreateGithubIntegration(integrationName, *PipelinesVcsToken)
 	assert.NoError(t, err)
-
 	defer deleteIntegrationAndAssert(t, integrationId)
 
 	// Create source with the above integration and assert.
-	sourceId, sourceErr := testsPipelinesSourcesService.AddSource(integrationId, *PipelinesVcsRepoFullPath, *PipelinesVcsBranch, pipelinesServices.DefaultPipelinesFileFilter)
-	assert.NoError(t, sourceErr)
+	sourceId, err := testsPipelinesSourcesService.AddSource(integrationId, *PipelinesVcsRepoFullPath, *PipelinesVcsBranch, pipelinesServices.DefaultPipelinesFileFilter)
+	if !assert.NoError(t, err) {
+		return
+	}
 	defer deleteSourceAndAssert(t, sourceId)
 
 	pollSyncPipelineSource(t)
 
 	pollForSyncResourceStatus(t)
-	_, isMultiBranch, resourceErr := pipelinesServices.GetPipelineResourceID(testPipelinesSyncService.GetHTTPClient(),
+	res, resourceErr := pipelinesServices.GetPipelineResource(testPipelinesSyncService.GetHTTPClient(),
 		testPipelinesSyncService.GetServiceURL(),
 		*PipelinesVcsRepoFullPath,
 		testPipelinesSyncService.GetHttpDetails())
 
 	assert.NoError(t, resourceErr)
 	pipelineName := "pipelines_run_int_test"
-	trigErr := testPipelinesRunService.TriggerPipelineRun(*PipelinesVcsBranch, pipelineName, isMultiBranch)
+	trigErr := testPipelinesRunService.TriggerPipelineRun(*PipelinesVcsBranch, pipelineName, *res.IsMultiBranch)
 	assert.NoError(t, trigErr)
 
 	pollGetRunStatus(t, pipelineName)
@@ -100,13 +97,13 @@ func testGetRunStatus(t *testing.T) {
 
 func pollGetRunStatus(t *testing.T, pipelineName string) {
 	pollingAction := func() (shouldStop bool, responseBody []byte, err error) {
-		_, isMultiBranch, resourceErr := pipelinesServices.GetPipelineResourceID(testPipelinesSyncService.GetHTTPClient(),
+		res, resourceErr := pipelinesServices.GetPipelineResource(testPipelinesSyncService.GetHTTPClient(),
 			testPipelinesSyncService.ServiceDetails.GetUrl(),
 			*PipelinesVcsRepoFullPath,
 			testPipelinesSyncService.ServiceDetails.CreateHttpClientDetails())
 
 		assert.NoError(t, resourceErr)
-		pipRunResponse, syncErr := testPipelinesRunService.GetRunStatus(*PipelinesVcsBranch, pipelineName, isMultiBranch)
+		pipRunResponse, syncErr := testPipelinesRunService.GetRunStatus(*PipelinesVcsBranch, pipelineName, *res.IsMultiBranch)
 		assert.NoError(t, syncErr)
 
 		// Got the full valid response.
@@ -131,20 +128,23 @@ func pollGetRunStatus(t *testing.T, pipelineName string) {
 		PollingAction:   pollingAction,
 		MsgPrefix:       "Get pipeline run status...",
 	}
-	// polling execution
+	// Polling execution
 	_, err := pollingExecutor.Execute()
 	assert.NoError(t, err)
 }
 
 func pollForSyncResourceStatus(t *testing.T) {
-	//define polling action
+	// Define polling action
 	pollingAction := func() (shouldStop bool, responseBody []byte, err error) {
 		pipResStatus, syncErr := testPipelinesSyncStatusService.GetSyncPipelineResourceStatus(*PipelinesVcsRepoFullPath, *PipelinesVcsBranch)
 		assert.NoError(t, syncErr)
 
-		// Got the full valid response.
 		if len(pipResStatus) > 0 && pipResStatus[0].LastSyncStatusCode == 4002 {
+			// Got the full valid response.
 			return true, []byte{}, nil
+		} else if len(pipResStatus) > 0 && pipResStatus[0].LastSyncStatusCode == 4003 {
+			// Sync Failed, it is not needed to retry.
+			return true, []byte{}, fmt.Errorf("failed to sync pipelines source\n%s", pipResStatus[0].LastSyncLogs)
 		}
 		return false, []byte{}, nil
 	}
@@ -154,7 +154,7 @@ func pollForSyncResourceStatus(t *testing.T) {
 		PollingAction:   pollingAction,
 		MsgPrefix:       "Get pipeline sync status...",
 	}
-	// polling execution
+	// Polling execution
 	_, err := pollingExecutor.Execute()
 	assert.NoError(t, err)
 }
@@ -173,7 +173,7 @@ func assertRunStatus(t *testing.T, statusCode int) {
 }
 
 func pollSyncPipelineSource(t *testing.T) {
-	//define polling action
+	// Define polling action
 	pollingAction := func() (shouldStop bool, responseBody []byte, err error) {
 		syncErr := testPipelinesSyncService.SyncPipelineSource(*PipelinesVcsBranch, *PipelinesVcsRepoFullPath)
 		assert.NoError(t, syncErr)
@@ -187,7 +187,7 @@ func pollSyncPipelineSource(t *testing.T) {
 		PollingAction:   pollingAction,
 		MsgPrefix:       "Syncing Pipeline Resource...",
 	}
-	// polling execution
+	// Polling execution
 	_, err := pollingExecutor.Execute()
 	assert.NoError(t, err)
 }

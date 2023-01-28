@@ -3,6 +3,8 @@ package httpclient
 import (
 	"bytes"
 	"context"
+	"strings"
+
 	//#nosec G505 -- sha1 is supported by Artifactory.
 	"crypto/sha1"
 	"encoding/hex"
@@ -29,6 +31,15 @@ type HttpClient struct {
 	ctx                context.Context
 	retries            int
 	retryWaitMilliSecs int
+}
+
+const (
+	apiKeyPrefix        = "AKCp8"
+	apiKeyMinimalLength = 73
+)
+
+func IsApiKey(key string) bool {
+	return strings.HasPrefix(key, apiKeyPrefix) && len(key) >= apiKeyMinimalLength
 }
 
 func (jc *HttpClient) GetRetries() int {
@@ -747,7 +758,7 @@ func (jc *HttpClient) IsAcceptRanges(downloadUrl string, httpClientsDetails http
 }
 
 func setAuthentication(req *http.Request, httpClientsDetails httputils.HttpClientDetails) {
-	//Set authentication
+	// Set authentication
 	if httpClientsDetails.ApiKey != "" {
 		if httpClientsDetails.User != "" {
 			req.SetBasicAuth(httpClientsDetails.User, httpClientsDetails.ApiKey)
@@ -757,7 +768,9 @@ func setAuthentication(req *http.Request, httpClientsDetails httputils.HttpClien
 		return
 	}
 	if httpClientsDetails.AccessToken != "" {
-		if httpClientsDetails.User != "" {
+		if IsApiKey(httpClientsDetails.AccessToken) {
+			log.Warn("The provided Access Token is an API key and will be used as a password in username/password authentication.\n" +
+				"To avoid this message in the future please use it a a password.")
 			req.SetBasicAuth(httpClientsDetails.User, httpClientsDetails.AccessToken)
 		} else {
 			req.Header.Set("Authorization", "Bearer "+httpClientsDetails.AccessToken)

@@ -3,10 +3,12 @@ package auth
 import (
 	"encoding/base64"
 	"encoding/json"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"github.com/jfrog/jfrog-client-go/utils/log"
+	"github.com/jfrog/jfrog-client-go/http/httpclient"
 	"strings"
 	"time"
+
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type CreateTokenResponseData struct {
@@ -74,10 +76,14 @@ func setAudienceManually(tokenPayload *TokenPayload, payload []byte) error {
 }
 
 func ExtractUsernameFromAccessToken(token string) (username string) {
+	if httpclient.IsApiKey(token) {
+		log.Warn("The provided access token is an API key which should be used as password.")
+		return
+	}
 	var err error
 	defer func() {
 		if err != nil {
-			log.Warn(err.Error() + "\n" +
+			log.Warn(err.Error() + ".\n" +
 				"The provided access token is not a valid JWT, probably a reference token.\n" +
 				"Some package managers only support basic authentication which requires also a username.\n" +
 				"If you plan to work with one of those package managers, please provide a username.")
@@ -127,6 +133,15 @@ func GetTokenMinutesLeft(token string) (int64, error) {
 		return 0, nil
 	}
 	return left / 60, nil
+}
+
+// Extracts the subject from an access token
+func ExtractSubjectFromAccessToken(token string) (string, error) {
+	tokenPayload, err := extractPayloadFromAccessToken(token)
+	if err != nil {
+		return "", err
+	}
+	return tokenPayload.Subject, nil
 }
 
 type TokenPayload struct {
