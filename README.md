@@ -157,6 +157,14 @@
       - [Get Vulnerabilities Report Details](#get-vulnerabilities-report-details)
       - [Get Vulnerabilities Report Content](#get-vulnerabilities-report-content)
       - [Delete Vulnerabilities Report](#delete-vulnerabilities-report)
+      - [Generate Licences Report](#generate-licences-report)
+      - [Get Licences Report Details](#get-licences-report-details)
+      - [Get Licences Report Content](#get-licences-report-content)
+      - [Delete Licences Report](#delete-licences-report)
+      - [Generate Violations Report](#generate-violations-report)
+      - [Get Violations Report Details](#get-violations-report-details)
+      - [Get Violations Report Content](#get-violations-report-content)
+      - [Delete Violations Report](#delete-violations-report)
       - [Get Artifact Summary](#get-artifact-summary)
       - [Get Entitlement info](#get-entitlement-info)
   - [Pipelines APIs](#pipelines-apis)
@@ -193,7 +201,9 @@
       - [Promoting a Release Bundle](#promoting-a-release-bundle)
       - [Get Release Bundle Creation Status](#get-release-bundle-creation-status)
       - [Get Release Bundle Promotion Status](#get-release-bundle-promotion-status)
+      - [Distribute Release Bundle](#distribute-release-bundle)
       - [Delete Release Bundle](#delete-release-bundle)
+      - [Remote Delete Release Bundle](#remote-delete-release-bundle)
 
 ## General
 
@@ -1614,9 +1624,9 @@ summary, err := distManager.SignReleaseBundle(params)
 #### Async Distributing a Release Bundle v1
 
 ```go
-params := services.NewDistributeReleaseBundleParams("bundle-name", "1")
-distributionRules := utils.DistributionCommonParams{SiteName: "Swamp-1", "CityName": "Tel-Aviv", "CountryCodes": []string{"123"}}}
-params.DistributionRules = []*utils.DistributionCommonParams{distributionRules}
+params := distribution.NewDistributeReleaseBundleParams("bundle-name", "1")
+distributionRules := distribution.DistributionCommonParams{SiteName: "Swamp-1", "CityName": "Tel-Aviv", "CountryCodes": []string{"123"}}}
+params.DistributionRules = []*distribution.DistributionCommonParams{distributionRules}
 // Auto-creating repository if it does not exist
 autoCreateRepo := true
 err := distManager.DistributeReleaseBundle(params, autoCreateRepo)
@@ -1625,9 +1635,9 @@ err := distManager.DistributeReleaseBundle(params, autoCreateRepo)
 #### Sync Distributing a Release Bundle v1
 
 ```go
-params := services.NewDistributeReleaseBundleParams("bundle-name", "1")
-distributionRules := utils.DistributionCommonParams{SiteName: "Swamp-1", "CityName": "Tel-Aviv", "CountryCodes": []string{"123"}}}
-params.DistributionRules = []*utils.DistributionCommonParams{distributionRules}
+params := distribution.NewDistributeReleaseBundleParams("bundle-name", "1")
+distributionRules := distribution.DistributionCommonParams{SiteName: "Swamp-1", "CityName": "Tel-Aviv", "CountryCodes": []string{"123"}}}
+params.DistributionRules = []*distribution.DistributionCommonParams{distributionRules}
 // Auto-creating repository if it does not exist
 autoCreateRepo := true
 // Wait up to 120 minutes for the release bundle v1 distribution
@@ -1654,8 +1664,8 @@ status, err := distributeBundleService.GetStatus(params)
 ```go
 params := services.NewDeleteReleaseBundleParams("bundle-name", "1")
 params.DeleteFromDistribution = true
-distributionRules := utils.DistributionCommonParams{SiteName: "Swamp-1", "CityName": "Tel-Aviv", "CountryCodes": []string{"123"}}}
-params.DistributionRules = []*utils.DistributionCommonParams{distributionRules}
+distributionRules := distribution.DistributionCommonParams{SiteName: "Swamp-1", "CityName": "Tel-Aviv", "CountryCodes": []string{"123"}}}
+params.DistributionRules = []*distribution.DistributionCommonParams{distributionRules}
 // Set to true to enable sync deletion (the command execution will end when the deletion process ends).
 param.Sync = true
 // Max minutes to wait for sync deletion.
@@ -1916,11 +1926,30 @@ scanResults, err := xrayManager.GetScanGraphResults(scanId)
 #### Generate Vulnerabilities Report
 
 ```go
-reportRequest := services.ReportRequestParams{
+vulnerabilitiesReportRequest := services.VulnerabilitiesReportRequestParams{
   Name: "example-report",
-  Filters: services.Filter{
-    HasRemediation: &trueValue,
-    Severity:       []string{ "High" },
+  Filters: services.VulnerabilitiesFilter{
+    VulnerableComponent: "*vulnerable:component*",
+    ImpactedArtifact: "some://impacted*artifact",
+    HasRemediation: &falseValue,
+    Cve: "CVE-1234-1234",
+    IssueId: "XRAY-1234",
+    Severity: []string{
+        "High",
+        "Medium"
+      },	
+    CvssScore: services.CvssScore {
+        MinScore: float64(6.3),
+        MaxScore: float64(9)
+    },
+    Published: services.DateTimeRange {
+        Start: "2020-06-29T12:22:16Z",
+        End: "2020-06-29T12:22:16Z"
+    },
+    ScanDate: services.DateTimeRange {
+        Start: "2020-06-29T12:22:16Z",
+        End: "2020-06-29T12:22:16Z"
+    }
   },
   Resources: services.Resource{
     IncludePathPatterns: []string{ "/example-sub-dir/**" },
@@ -1933,7 +1962,7 @@ reportRequest := services.ReportRequestParams{
 }
 
 // The reportRequestResponse will contain the report ID to use in subsequent requests
-reportRequestResponse, err := xrayManager.GenerateVulnerabilitiesReport(reportRequest)
+reportRequestResponse, err := xrayManager.GenerateVulnerabilitiesReport(vulnerabilitiesReportRequest)
 ```
 
 #### Get Vulnerabilities Report Details
@@ -1961,6 +1990,175 @@ reportContent, err := xrayManager.ReportContent(reportContentRequest)
 
 ```go
 // The reportId argument value is returned as part of the xrayManager.GenerateVulnerabilitiesReport API response.
+err := xrayManager.DeleteReport(reportId)
+```
+#### Generate Licences Report
+
+```go
+licensesReportRequest := services.LicensesReportRequestParams{
+  Name: "example-report",
+  Filters: services.LicensesFilter{
+    Component: "*gav:component*",
+    Artifact: "some://impacted*artifact",
+    Unknown: &falseValue,
+    Unrecognized: &trueValue,
+    LicenseNames: []string{
+        "Apache",
+        "MIT",
+        "AFL"
+    },
+    LicensePatterns: []string{
+        "*Apache*",
+        "The Apache*",
+        "AFL*"
+    },
+    ScanDate: services.DateTimeRange {
+        Start: "2020-06-29T12:22:16Z",
+        End: "2020-06-29T12:22:16Z"
+    }
+  },
+  Resources: services.Resource{
+    IncludePathPatterns: []string{ "/example-sub-dir/**" },
+    Repositories: []services.Repository{
+      {
+        Name: "example-repository",
+      },
+    },
+  },
+}
+
+// The reportRequestResponse will contain the report ID to use in subsequent requests
+reportRequestResponse, err := xrayManager.GenerateLicencesReport(licensesReportRequest)
+```
+
+#### Get Licences Report Details
+
+```go
+// The reportId argument value is returned as part of the xrayManager.GenerateLicencesReport API response.
+reportDetails, err := xrayManager.ReportDetails(reportId)
+```
+
+#### Get Licences Report Content
+
+```go
+// The ReportId value is returned as part of the xrayManager.GenerateLicencesReport API response.
+reportContentRequest := services.ReportContentRequestParams{
+  ReportId:  "example-report-id",
+  Direction: "asc",
+  PageNum:   0,
+  NumRows:   0,
+  OrderBy:   "severity",
+}
+reportContent, err := xrayManager.ReportContent(reportContentRequest)
+```
+
+#### Delete Licences Report
+
+```go
+// The reportId argument value is returned as part of the xrayManager.GenerateLicencesReport API response.
+err := xrayManager.DeleteReport(reportId)
+```
+
+#### Generate Violations Report
+
+```go
+violationsReportRequest := services.ViolationsReportRequestParams{
+  Name: "example-report",
+  Filters: 		Type: "security|license|operational_risk",
+    WatchNames: []string{
+      "NameOfWatch1",
+      "NameOfWatch2"
+    },
+    WatchPatterns: []string{
+      "WildcardWatch*"
+    },
+    Component: "*vulnerable:component*",
+    Artifact: "some://impacted*artifact",
+    PolicyNames: []string{
+      "NameOfPolicy"
+    },
+    Severities: []string{
+      "High",
+      "Medium"
+    },
+    Updated: services.DateTimeRange {
+      Start: "2020-01-02T15:00:00Z",
+      End: "2020-12-15T00:00:00Z"
+    },
+    SecurityFilters: services.VulnerabilitiesFilter{
+      Cve: "CVE-2020-10693",
+      IssueId: "XRAY-87343",
+      Severity: []string{
+          "High",
+          "Medium"
+        },	
+      CvssScore: services.CvssScore {
+          MinScore: float64(6.3),
+          MaxScore: float64(9)
+      },
+      Published: services.DateTimeRange {
+          Start: "2020-06-29T12:22:16Z",
+          End: "2020-06-29T12:22:16Z"
+      },
+      ScanDate: services.DateTimeRange {
+          Start: "2020-06-29T12:22:16Z",
+          End: "2020-06-29T12:22:16Z"
+      },
+      SummaryContains: "kernel", 
+      HasRemediation: &falseValue,
+    },
+    LicenseFilters: services.LicensesFilter {
+      Unknown: &falseValue,
+      Unrecognized: &trueValue,
+		LicenseNames: []string{
+	    "Apache",
+	    "MIT",
+	    "AFL"
+		},
+    LicensePatterns: []string{
+      "*Apache*",
+      "AFL*"
+    },
+  }
+  Resources: services.Resource{
+    IncludePathPatterns: []string{ "/example-sub-dir/**" },
+    Repositories: []services.Repository{
+      {
+        Name: "example-repository",
+      },
+    },
+  },
+}
+
+// The reportRequestResponse will contain the report ID to use in subsequent requests
+reportRequestResponse, err := xrayManager.GenerateViolationsReport(violationsReportRequest)
+```
+
+#### Get Violations Report Details
+
+```go
+// The reportId argument value is returned as part of the xrayManager.GenerateViolationsReport API response.
+reportDetails, err := xrayManager.ReportDetails(reportId)
+```
+
+#### Get Violations Report Content
+
+```go
+// The ReportId value is returned as part of the xrayManager.GenerateViolationsReport API response.
+reportContentRequest := services.ReportContentRequestParams{
+  ReportId:  "example-report-id",
+  Direction: "asc",
+  PageNum:   0,
+  NumRows:   0,
+  OrderBy:   "severity",
+}
+reportContent, err := xrayManager.ReportContent(reportContentRequest)
+```
+
+#### Delete Violations Report
+
+```go
+// The reportId argument value is returned as part of the xrayManager.GenerateViolationsReport API response.
 err := xrayManager.DeleteReport(reportId)
 ```
 
@@ -2244,6 +2442,27 @@ projectKey := "default"
 resp, err := serviceManager.GetReleaseBundlePromotionStatus(rbDetails, projectKey, createdMillis, sync)
 ```
 
+#### Distribute Release Bundle
+
+```go
+rules := &distribution.DistributionCommonParams{
+SiteName:     "*",
+CityName:     "*",
+CountryCodes: []string{"*"},
+}
+params := distribution.NewDistributeReleaseBundleParams("rbName", "rbVersion")
+params.DistributionRules = append(params.DistributionRules, rules)
+
+autoCreateRepo := true
+
+pathMapping := services.PathMapping{
+    Pattern: "(*)/(*)",
+    Target:  "{1}/target/{2}",
+}
+
+resp, err := serviceManager.DistributeReleaseBundle(params, autoCreateRepo, pathMapping)
+```
+
 #### Delete Release Bundle
 
 ```go
@@ -2256,4 +2475,20 @@ params.ProjectKey = "project"
 params.Async = true
 
 resp, err := serviceManager.DeleteReleaseBundle(rbDetails, params)
+```
+
+#### Remote Delete Release Bundle
+
+```go
+rules := &distribution.DistributionCommonParams{
+SiteName:     "*",
+CityName:     "*",
+CountryCodes: []string{"*"},
+}
+params := distribution.NewDistributeReleaseBundleParams("rbName", "rbVersion")
+params.DistributionRules = append(params.DistributionRules, rules)
+
+dryRun := true
+
+resp, err := serviceManager.RemoteDeleteReleaseBundle(params, dryRun)
 ```
