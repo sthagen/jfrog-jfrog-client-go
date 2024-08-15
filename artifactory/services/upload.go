@@ -679,18 +679,18 @@ func logUploadResponse(logMsgPrefix string, resp *http.Response, body []byte, ch
 
 func addExplodeHeader(httpClientsDetails *httputils.HttpClientDetails, isExplode bool) {
 	if isExplode {
-		utils.AddHeader("X-Explode-Archive", "true", &httpClientsDetails.Headers)
+		httpClientsDetails.AddHeader("X-Explode-Archive", "true")
 	}
 }
 
 func (us *UploadService) doChecksumDeploy(details *fileutils.FileDetails, targetPath string, httpClientsDetails httputils.HttpClientDetails,
 	client *jfroghttpclient.JfrogHttpClient) (resp *http.Response, body []byte, err error) {
-	requestClientDetails := httpClientsDetails.Clone()
-	utils.AddHeader("X-Checksum-Deploy", "true", &requestClientDetails.Headers)
-	utils.AddChecksumHeaders(requestClientDetails.Headers, details)
-	utils.AddAuthHeaders(requestClientDetails.Headers, us.ArtDetails)
+	clonedHttpClientsDetails := httpClientsDetails.Clone()
+	clonedHttpClientsDetails.AddHeader("X-Checksum-Deploy", "true")
+	utils.AddChecksumHeaders(clonedHttpClientsDetails.Headers, details)
+	utils.AddAuthHeaders(clonedHttpClientsDetails.Headers, us.ArtDetails)
 
-	resp, body, err = client.SendPut(targetPath, nil, requestClientDetails)
+	resp, body, err = client.SendPut(targetPath, nil, clonedHttpClientsDetails)
 	return
 }
 
