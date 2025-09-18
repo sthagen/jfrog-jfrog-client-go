@@ -2,28 +2,21 @@ name: JFrog Client Go Tests
 on:
   workflow_dispatch:
   pull_request_target:
-    types: [opened, synchronize, labeled]
-    branches:
-      - "master"
+    types: [labeled]
 
 # Ensures that only the latest commit is running for each PR at a time.
 # Ignores this rule for push events.
 concurrency:
-  group: ${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.event.pull_request.number || github.sha }}-tests
   cancel-in-progress: true
 jobs:
   Pretest:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request_target' && (github.event.action != 'labeled' || contains(github.event.pull_request.labels.*.name, 'safe to test')))
-    strategy:
-      matrix:
-        os:
-          - name: ubuntu
-            version: 24.04
-    runs-on: ${{ matrix.os.name }}-${{ matrix.os.version }}
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'safe to test')
+    runs-on: ubuntu-latest
     steps:
       - name: Unlabel 'safe to test'
+        if: contains(github.event.pull_request.labels.*.name, 'safe to test')
         uses: actions-ecosystem/action-remove-labels@v1
-        if: ${{ github.event_name == 'pull_request_target' && contains(github.event.pull_request.labels.*.name, 'safe to test') }}
         with:
           labels: "safe to test"
 
@@ -51,7 +44,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
