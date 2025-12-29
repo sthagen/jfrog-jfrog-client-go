@@ -1,6 +1,6 @@
 module github.com/jfrog/jfrog-client-go
 
-go 1.25.4
+go 1.25.5
 
 require (
 	github.com/CycloneDX/cyclonedx-go v0.9.3
@@ -11,7 +11,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/gookit/color v1.6.0
 	github.com/jfrog/archiver/v3 v3.6.1
-	github.com/jfrog/build-info-go v1.12.5-0.20251209031413-f5f0e93dc8db
+	github.com/jfrog/build-info-go v1.13.0
 	github.com/jfrog/gofrog v1.7.6
 	github.com/minio/sha256-simd v1.0.1
 	github.com/stretchr/testify v1.11.1
